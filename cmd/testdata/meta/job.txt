@@ -1,0 +1,2 @@
+TypeMeta.APIVersion: batch/v1
+TypeMeta.Kind: Job

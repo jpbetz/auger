@@ -1,0 +1,4 @@
+/registry/jobs/default/pi
+/registry/namespaces/default
+/registry/pods/default/pi-dqtsw
+compact_rev_key
