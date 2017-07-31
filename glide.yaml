@@ -1,0 +1,13 @@
+package: kubernetes-incubator/data-tools
+import:
+- package: github.com/spf13/pflag
+  version: e57e3eeb33f795204c1ca35f56c44f83227c6e66
+- package: github.com/coreos/etcd
+  version: 20490caaf0dcd96bb4a95e40625559def8ef5b04
+- package: github.com/coreos/bbolt
+  version: ad39960eb40bb33c9bda31bed2eaf4fdda15efe6
+- package: k8s.io/kubernetes
+  version: ebb8d6e0fadfc95f3d64ccecc36c8ed2ac9224ef
+- package: github.com/golang/glog
+- package: github.com/spf13/cobra
+

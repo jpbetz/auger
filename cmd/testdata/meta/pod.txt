@@ -1,0 +1,2 @@
+TypeMeta.APIVersion: v1
+TypeMeta.Kind: Pod

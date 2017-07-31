@@ -1,0 +1,5 @@
+Key: /registry/namespaces/default
+Version: 1
+CreateRevision: 4
+ModRevision: 4
+Lease: 0
