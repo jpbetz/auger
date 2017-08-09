@@ -64,72 +64,76 @@ var extractCmd = &cobra.Command{
 }
 
 type extractOptions struct {
-	Out          string
-	Filename     string
-	Key          string
-	Version      string
-	KeyPrefix    string
-	ListVersions bool
-	LeafItem     bool
-	PrintKey     bool
-	Summary      bool
-	Raw          bool
+	out          string
+	filename     string
+	key          string
+	version      string
+	keyPrefix    string
+	listVersions bool
+	leafItem     bool
+	printKey     bool
+	summary      bool
+	raw          bool
 }
 
 var opts *extractOptions = &extractOptions{}
 
 func init() {
 	RootCmd.AddCommand(extractCmd)
-	extractCmd.Flags().StringVarP(&opts.Out, "output", "o", "yaml", "Output format. One of: json|yaml|proto")
-	extractCmd.Flags().StringVarP(&opts.Filename, "file", "f", "", "Bolt DB '.db' filename")
-	extractCmd.Flags().StringVarP(&opts.Key, "key", "k", "", "Etcd object key to find in boltdb file")
-	extractCmd.Flags().StringVarP(&opts.Version, "version", "v", "", "Version of etcd key to find, defaults to latest version")
-	extractCmd.Flags().StringVar(&opts.KeyPrefix, "keys-by-prefix", "", "List out all keys with the given prefix")
-	extractCmd.Flags().BoolVar(&opts.ListVersions, "list-versions", false, "List out all versions of the key, requires --key")
-	extractCmd.Flags().BoolVar(&opts.LeafItem, "leaf-item", false, "Read the input as a boltdb leaf page item.")
-	extractCmd.Flags().BoolVar(&opts.PrintKey, "print-key", false, "Print the key of the matching entry")
-	extractCmd.Flags().BoolVar(&opts.Summary, "summary", false, "Print a summary of the matching entry")
-	extractCmd.Flags().BoolVar(&opts.Raw, "raw", false, "Don't attempt to decode the etcd value")
+	extractCmd.Flags().StringVarP(&opts.out, "output", "o", "yaml", "Output format. One of: json|yaml|proto")
+	extractCmd.Flags().StringVarP(&opts.filename, "file", "f", "", "Bolt DB '.db' filename")
+	extractCmd.Flags().StringVarP(&opts.key, "key", "k", "", "Etcd object key to find in boltdb file")
+	extractCmd.Flags().StringVarP(&opts.version, "version", "v", "", "Version of etcd key to find, defaults to latest version")
+	extractCmd.Flags().StringVar(&opts.keyPrefix, "keys-by-prefix", "", "List out all keys with the given prefix")
+	extractCmd.Flags().BoolVar(&opts.listVersions, "list-versions", false, "List out all versions of the key, requires --key")
+	extractCmd.Flags().BoolVar(&opts.leafItem, "leaf-item", false, "Read the input as a boltdb leaf page item.")
+	extractCmd.Flags().BoolVar(&opts.printKey, "print-key", false, "Print the key of the matching entry")
+	extractCmd.Flags().BoolVar(&opts.summary, "summary", false, "Print a summary of the matching entry")
+	extractCmd.Flags().BoolVar(&opts.raw, "raw", false, "Don't attempt to decode the etcd value")
 }
 
 // See etcd/mvcc/kvstore.go:keyBucketName
 var keyBucket = []byte("key")
 
 func extractValidateAndRun() error {
-	outMediaType, err := encoding.ToMediaType(opts.Out)
-	out := os.Stdout
+	outMediaType, err := encoding.ToMediaType(opts.out)
 	if err != nil {
-		return fmt.Errorf("invalid --output %s: %s", opts.Out, err)
+		return fmt.Errorf("invalid --output %s: %s", opts.out, err)
 	}
-	hasKey := opts.Key != ""
-	hasVersion := opts.Version != ""
-	hasKeyPrefix := opts.KeyPrefix != ""
+	out := os.Stdout
+	hasKey := opts.key != ""
+	hasVersion := opts.version != ""
+	hasKeyPrefix := opts.keyPrefix != ""
 
 	switch {
-	case opts.LeafItem:
-		raw, err := readInput(opts.Filename)
+	case opts.leafItem:
+		raw, err := readInput(opts.filename)
 		if err != nil {
 			return fmt.Errorf("unable to read input: %s", err)
 		}
-		if opts.Summary {
-			return printLeafItemSummary(raw, out)
-		} else if opts.PrintKey {
-			return printLeafItemKey(raw, out)
+		kv, err := extractKvFromLeafItem(raw)
+		if err != nil {
+			return fmt.Errorf("failed to extract etcd key-value record from boltdb leaf item: %s", err)
+		}
+		if opts.summary {
+			return printLeafItemSummary(kv, out)
+		} else if opts.printKey {
+			return printLeafItemKey(kv, out)
 		} else {
-			return printLeafItemValue(raw, outMediaType, out)
+			return printLeafItemValue(kv, outMediaType, out)
 		}
 	case hasKey && hasKeyPrefix:
 		return fmt.Errorf("--keys-by-prefix and --key may not be used together")
-	case hasKey && opts.ListVersions:
-		return printVersions(opts.Filename, opts.Key, out)
+	case hasKey && opts.listVersions:
+		return printVersions(opts.filename, opts.key, out)
 	case hasKey:
-		return printValue(opts.Filename, opts.Key, opts.Version, opts.Raw, outMediaType, out)
-	case !hasKey && opts.ListVersions:
+		return printValue(opts.filename, opts.key, opts.version, opts.raw, outMediaType, out)
+	case !hasKey && opts.listVersions:
 		return fmt.Errorf("--list-versions may only be used with --key")
 	case !hasKey && hasVersion:
 		return fmt.Errorf("--version may only be used with --key")
 	default:
-		return printKeys(opts.Filename, opts.KeyPrefix, out)
+		return printKeys(opts.filename, opts.keyPrefix, out)
 	}
 }
 
@@ -180,21 +184,13 @@ func printValue(filename string, key string, version string, raw bool, outMediaT
 }
 
 // printLeafItemKey prints an etcd key for a given boltdb leaf item.
-func printLeafItemKey(raw []byte, out io.Writer) error {
-	kv, err := extractKvFromLeafItem(raw)
-	if err != nil {
-		return fmt.Errorf("failed to extract etcd key-value record from boltdb leaf item: %s", err)
-	}
+func printLeafItemKey(kv *mvccpb.KeyValue, out io.Writer) error {
 	fmt.Fprintf(out, "%s\n", kv.Key)
 	return nil
 }
 
-// printLeafItemKey prints an etcd key for a given boltdb leaf item.
-func printLeafItemSummary(raw []byte, out io.Writer) error {
-	kv, err := extractKvFromLeafItem(raw)
-	if err != nil {
-		return fmt.Errorf("failed to extract etcd key-value record from boltdb leaf item: %s", err)
-	}
+// printLeafItemSummary prints etcd metadata summary
+func printLeafItemSummary(kv *mvccpb.KeyValue, out io.Writer) error {
 	fmt.Fprintf(out, "Key: %s\n", kv.Key)
 	fmt.Fprintf(out, "Version: %d\n", kv.Version)
 	fmt.Fprintf(out, "CreateRevision: %d\n", kv.CreateRevision)
@@ -204,11 +200,7 @@ func printLeafItemSummary(raw []byte, out io.Writer) error {
 }
 
 // printLeafItemValue prints an etcd value for a given boltdb leaf item.
-func printLeafItemValue(raw []byte, outMediaType string, out io.Writer) error {
-	kv, err := extractKvFromLeafItem(raw)
-	if err != nil {
-		return fmt.Errorf("failed to extract etcd key-value record from boltdb leaf item: %s", err)
-	}
+func printLeafItemValue(kv *mvccpb.KeyValue, outMediaType string, out io.Writer) error {
 	return convert(outMediaType, kv.Value, out)
 }
 
@@ -244,7 +236,7 @@ func listKeys(filename string, prefix string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := sortedKeys(m)
+	result := getSortedKeys(m)
 	return result, nil
 }
 
@@ -327,7 +319,7 @@ func extractKvFromLeafItem(raw []byte) (*mvccpb.KeyValue, error) {
 	return kv, nil
 }
 
-func sortedKeys(m map[string]bool) []string {
+func getSortedKeys(m map[string]bool) []string {
 	result := make([]string, len(m))
 	i := 0
 	for k := range m {

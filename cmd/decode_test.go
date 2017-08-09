@@ -22,6 +22,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/kubernetes-incubator/kvstore-tool/pkg/encoding"
 )
 
@@ -74,4 +75,12 @@ func readTestFile(t *testing.T, filename string) []byte {
 		t.Fatalf("failed to read test data file, %v", err)
 	}
 	return in
+}
+
+func readTestFileAsKv(t *testing.T, filename string) *mvccpb.KeyValue {
+	kv, err := extractKvFromLeafItem(readTestFile(t, filename))
+	if err != nil {
+		t.Fatal("failed to extract etcd key-value record from boltdb leaf item: %s", err)
+	}
+	return kv
 }

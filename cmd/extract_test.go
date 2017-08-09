@@ -49,25 +49,25 @@ func TestListKeyVersions(t *testing.T) {
 
 func TestExtractByKey(t *testing.T) {
 	out := new(bytes.Buffer)
-	if err := printValue(dbFile, "/registry/jobs/default/pi", "3", encoding.YamlMediaType, out); err != nil {
+	if err := printValue(dbFile, "/registry/jobs/default/pi", "3", false, encoding.YamlMediaType, out); err != nil {
 		t.Fatal(err)
 	}
 	assertMatchesFile(t, out, "testdata/yaml/job.yaml")
 }
 
 func TestExtractKeyFromLeaf(t *testing.T) {
-	raw := readTestFile(t, "testdata/boltdb/page2item1.bin")
+	kv := readTestFileAsKv(t, "testdata/boltdb/page2item1.bin")
 	out := new(bytes.Buffer)
-	if err := printLeafItemKey(raw, out); err != nil {
+	if err := printLeafItemKey(kv, out); err != nil {
 		t.Fatal(err)
 	}
 	assertMatchesFile(t, out, "testdata/boltdb/page2item1-key.txt")
 }
 
 func TestExtractSummaryFromLeaf(t *testing.T) {
-	raw := readTestFile(t, "testdata/boltdb/page2item1.bin")
+	kv := readTestFileAsKv(t, "testdata/boltdb/page2item1.bin")
 	out := new(bytes.Buffer)
-	if err := printLeafItemSummary(raw, out); err != nil {
+	if err := printLeafItemSummary(kv, out); err != nil {
 		t.Fatal(err)
 	}
 	assertMatchesFile(t, out, "testdata/boltdb/page2item1-summary.txt")
@@ -75,9 +75,9 @@ func TestExtractSummaryFromLeaf(t *testing.T) {
 
 // TODO: run a permutation grid of tests
 func TestExtractValueFromLeaf(t *testing.T) {
-	raw := readTestFile(t, "testdata/boltdb/page2item1.bin")
+	kv := readTestFileAsKv(t, "testdata/boltdb/page2item1.bin")
 	out := new(bytes.Buffer)
-	if err := printLeafItemValue(raw, encoding.YamlMediaType, out); err != nil {
+	if err := printLeafItemValue(kv, encoding.YamlMediaType, out); err != nil {
 		t.Fatal(err)
 	}
 	assertMatchesFile(t, out, "testdata/yaml/pod.yaml")

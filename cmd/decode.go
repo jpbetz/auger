@@ -68,27 +68,27 @@ var decodeCmd = &cobra.Command{
 }
 
 type decodeOptions struct {
-	Out           string
-	MetaOnly      bool
-	InputFilename string
+	out           string
+	metaOnly      bool
+	inputFilename string
 }
 
 var options *decodeOptions = &decodeOptions{}
 
 func init() {
 	RootCmd.AddCommand(decodeCmd)
-	decodeCmd.Flags().StringVarP(&options.Out, "output", "o", "yaml", "Output format. One of: json|yaml|proto")
-	decodeCmd.Flags().BoolVar(&options.MetaOnly, "meta-only", false, "Output only type meta fields")
-	decodeCmd.Flags().StringVarP(&options.InputFilename, "file", "f", "", "Filename to read storage encoded data from")
+	decodeCmd.Flags().StringVarP(&options.out, "output", "o", "yaml", "Output format. One of: json|yaml|proto")
+	decodeCmd.Flags().BoolVar(&options.metaOnly, "meta-only", false, "Output only type meta fields")
+	decodeCmd.Flags().StringVarP(&options.inputFilename, "file", "f", "", "Filename to read storage encoded data from")
 }
 
 // Validate the command line flags and run the command.
 func validateAndRun() error {
-	outMediaType, err := encoding.ToMediaType(options.Out)
+	outMediaType, err := encoding.ToMediaType(options.out)
 	if err != nil {
 		return err
 	}
-	in, err := readInput(options.InputFilename)
+	in, err := readInput(options.inputFilename)
 	if len(in) == 0 {
 		return fmt.Errorf("no input data")
 	}
@@ -96,7 +96,7 @@ func validateAndRun() error {
 		return err
 	}
 
-	return run(options.MetaOnly, outMediaType, in, os.Stdout)
+	return run(options.metaOnly, outMediaType, in, os.Stdout)
 }
 
 // Run the decode command line.
