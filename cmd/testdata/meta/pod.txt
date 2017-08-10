@@ -1,2 +1,3 @@
+MediaType: application/vnd.kubernetes.protobuf
 TypeMeta.APIVersion: v1
 TypeMeta.Kind: Pod

@@ -18,6 +18,7 @@ package encoding
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -58,13 +59,22 @@ func ToMediaType(out string) (string, error) {
 
 // Convert from kv store encoded data to the given output format using kubernetes' api machinery to
 // perform the conversion.
-func Convert(outMediaType string, in []byte, out io.Writer) error {
-	groupName, err := decodeGroupName(in)
+func Convert(inMediaType, outMediaType string, in []byte, out io.Writer) error {
+
+	// TODO: move this elsewhere, I need to be able to use ths function to write data back to etcd or boltdb
+	if inMediaType == ProtobufMediaType && outMediaType == ProtobufMediaType {
+		return DecodeRaw(in, out)
+	}
+
+	typeMeta, err := decodeTypeMeta(inMediaType, in)
 	if err != nil {
 		return err
 	}
-
-	codec, err := newCodec(groupName, ProtobufMediaType)
+	groupName, err := decodeGroupName(typeMeta.APIVersion)
+	if err != nil {
+		return err
+	}
+	inCodec, err := newCodec(groupName, inMediaType)
 	if err != nil {
 		return err
 	}
@@ -73,7 +83,7 @@ func Convert(outMediaType string, in []byte, out io.Writer) error {
 		return err
 	}
 
-	obj, err := runtime.Decode(codec, in)
+	obj, err := runtime.Decode(inCodec, in)
 	if err != nil {
 		return err
 	}
@@ -90,6 +100,52 @@ func Convert(outMediaType string, in []byte, out io.Writer) error {
 	return nil
 }
 
+// DetectAndExtract searches the the start of either json of protobuf data, and, if found, returns the mime type and data.
+func DetectAndExtract(in []byte) (string, []byte, error) {
+	if pb, ok := tryFindProto(in); ok {
+		return ProtobufMediaType, pb, nil
+	}
+	if rawJs, ok := tryFindJson(in); ok {
+		js, err := rawJs.MarshalJSON()
+		if err != nil {
+			return "", nil, err
+		}
+		return JsonMediaType, js, nil
+	}
+	return "", nil, fmt.Errorf("error reading input, does not appear to contain valid JSON or binary data")
+}
+
+// TryFindProto searches for the 'ks8\0' prefix, and, if found, returns the data starting with the prefix.
+func tryFindProto(in []byte) ([]byte, bool) {
+	i := bytes.Index(in, ProtoEncodingPrefix)
+	if i >= 0 && i < len(in) {
+		return in[i:], true
+	}
+	return nil, false
+}
+
+const jsonStartChars = "{["
+
+// TryFindJson searches for the start of a valid json substring, and, if found, returns the json.
+func tryFindJson(in []byte) (*json.RawMessage, bool) {
+	var js json.RawMessage
+
+	i := bytes.IndexAny(in, jsonStartChars)
+	for i >= 0 && i < len(in) {
+		in = in[i:]
+		if len(in) < 2 {
+			break
+		}
+		err := json.Unmarshal(in, &js)
+		if err == nil {
+			return &js, true
+		}
+		in = in[1:]
+		i = bytes.IndexAny(in, jsonStartChars)
+	}
+	return nil, false
+}
+
 // DecodeRaw decodes the raw payload bytes contained within the 'Unknown' protobuf envelope of
 // the given storage data.
 func DecodeRaw(in []byte, out io.Writer) error {
@@ -104,21 +160,16 @@ func DecodeRaw(in []byte, out io.Writer) error {
 	return nil
 }
 
-// DecodeMeta decodes the TypeMeta, ContentEncoding and ContentType fields from the 'Unknown'
+// DecodeSummary decodes the TypeMeta, ContentEncoding and ContentType fields from the 'Unknown'
 // protobuf envelope of the given storage data.
-func DecodeMeta(in []byte, out io.Writer) error {
-	unknown, err := DecodeUnknown(in)
+func DecodeSummary(inMediaType string, in []byte, out io.Writer) error {
+	typeMeta, err := decodeTypeMeta(inMediaType, in)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "TypeMeta.APIVersion: %s\n", unknown.TypeMeta.APIVersion)
-	fmt.Fprintf(out, "TypeMeta.Kind: %s\n", unknown.TypeMeta.Kind)
-	if len(unknown.ContentEncoding) > 0 {
-		fmt.Fprintf(out, "ContentEncoding: %s\n", unknown.ContentEncoding)
-	}
-	if len(unknown.ContentType) > 0 {
-		fmt.Fprintf(out, "ContentType: %s\n", unknown.ContentType)
-	}
+	fmt.Fprintf(out, "MediaType: %s\n", inMediaType)
+	fmt.Fprintf(out, "TypeMeta.APIVersion: %s\n", typeMeta.APIVersion)
+	fmt.Fprintf(out, "TypeMeta.Kind: %s\n", typeMeta.Kind)
 	return nil
 }
 
@@ -164,23 +215,43 @@ func newCodec(groupName string, mediaType string) (runtime.Codec, error) {
 		return nil, fmt.Errorf("failed to initialize codec: %v", err)
 	}
 	return codec, nil
-
 }
 
-// DecodeGroupName decodes the group name from the meta information of provide storage formatted binary data.
-func decodeGroupName(in []byte) (string, error) {
+// getTypeMeta gets the TypeMeta from the given data, either as JSON or Protobuf.
+func decodeTypeMeta(inMediaType string, in []byte) (*runtime.TypeMeta, error) {
+	switch inMediaType {
+	case JsonMediaType:
+		return typeMetaFromJson(in)
+	case ProtobufMediaType:
+		return typeMetaFromProto(in)
+	default:
+		return nil, fmt.Errorf("unsupported inMediaType %s", inMediaType)
+	}
+}
+
+func typeMetaFromJson(in []byte) (*runtime.TypeMeta, error) {
+	var meta runtime.TypeMeta
+	json.Unmarshal(in, &meta)
+	return &meta, nil
+}
+
+func typeMetaFromProto(in []byte) (*runtime.TypeMeta, error) {
 	unknown, err := DecodeUnknown(in)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	v := unknown.TypeMeta.APIVersion
-	parts := strings.Split(v, "/")
+	return &unknown.TypeMeta, nil
+}
+
+// decodeGroupName gets a group name from a TypeMeta's apiVersion.
+func decodeGroupName(apiVersion string) (string, error) {
+	parts := strings.Split(apiVersion, "/")
 	switch len(parts) {
 	case 1:
 		return "", nil
 	case 2:
 		return parts[0], nil
 	default:
-		return "", fmt.Errorf("Unrecognized TypeMeta.APIVersion string: %s", v)
+		return "", fmt.Errorf("Unrecognized TypeMeta.APIVersion string: %s", apiVersion)
 	}
 }

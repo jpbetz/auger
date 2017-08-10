@@ -44,6 +44,13 @@ var decodeTests = []struct {
 	{"testdata/storage/job.bin", "testdata/json/job.json", false, encoding.JsonMediaType},
 	{"testdata/storage/job.bin", "testdata/proto/job.bin", false, encoding.ProtobufMediaType},
 	{"testdata/storage/job.bin", "testdata/meta/job.txt", true, encoding.YamlMediaType},
+
+	// JSON
+	{"testdata/json/pod.json", "testdata/json/pod.json", false, encoding.JsonMediaType},
+
+	// With etcd key
+	{"testdata/storage/pod-with-key.bin", "testdata/yaml/pod.yaml", false, encoding.YamlMediaType},
+	{"testdata/json/pod-with-key.txt", "testdata/json/pod.json", false, encoding.JsonMediaType},
 }
 
 func TestDecode(t *testing.T) {
@@ -52,7 +59,7 @@ func TestDecode(t *testing.T) {
 		in = in[:len(in)-1]
 		out := new(bytes.Buffer)
 		if err := run(test.metaOnly, test.outMediaType, in, out); err != nil {
-			t.Fatal(err)
+			t.Fatalf("%v for %+v", err, test)
 		}
 		assertMatchesFile(t, out, test.fileExpected)
 	}
@@ -60,8 +67,9 @@ func TestDecode(t *testing.T) {
 
 func assertMatchesFile(t *testing.T, out *bytes.Buffer, filename string) {
 	s := out.String()
-	if s != string(readTestFile(t, filename)) {
-		t.Errorf("%s, want contents of %s", s, filename)
+	expected := string(readTestFile(t, filename))
+	if s != expected {
+		t.Errorf("got:\n%s\nwanted:\n%s", s, expected)
 	}
 }
 
@@ -80,7 +88,7 @@ func readTestFile(t *testing.T, filename string) []byte {
 func readTestFileAsKv(t *testing.T, filename string) *mvccpb.KeyValue {
 	kv, err := extractKvFromLeafItem(readTestFile(t, filename))
 	if err != nil {
-		t.Fatal("failed to extract etcd key-value record from boltdb leaf item: %s", err)
+		t.Fatalf("failed to extract etcd key-value record from boltdb leaf item: %s", err)
 	}
 	return kv
 }
