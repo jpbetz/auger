@@ -1,6 +1,6 @@
 kvstore-tool
 ------------
-Decodes kubernetes objects from the binary storage encoding used with etcd3 to YAML, JSON, or Protobuf.
+Decodes kubernetes objects from the binary storage and JSON encodings persisted to etcd. Outputs to YAML, JSON, or Protobuf.
 
 Installation
 ------------
@@ -23,7 +23,7 @@ Example Usage
 Decode a pod from etcd v3, where `<pod-name>` is the name of one of your pods:
 
 ``` sh
-ETCDCTL_API=3 etcdctl get /registry/pods/default/<pod-name> --print-value-only --rev=0 | kvstore-tool decode
+ETCDCTL_API=3 etcdctl get /registry/pods/default/<pod-name> | kvstore-tool decode
 > apiVersion: v1
 > kind: Pod
 > metadata:

@@ -78,7 +78,7 @@ var options *decodeOptions = &decodeOptions{}
 func init() {
 	RootCmd.AddCommand(decodeCmd)
 	decodeCmd.Flags().StringVarP(&options.out, "output", "o", "yaml", "Output format. One of: json|yaml|proto")
-	decodeCmd.Flags().BoolVar(&options.metaOnly, "meta-only", false, "Output only type meta fields")
+	decodeCmd.Flags().BoolVar(&options.metaOnly, "meta-only", false, "Output only content type and metadata fields")
 	decodeCmd.Flags().StringVarP(&options.inputFilename, "file", "f", "", "Filename to read storage encoded data from")
 }
 
@@ -101,15 +101,16 @@ func validateAndRun() error {
 
 // Run the decode command line.
 func run(metaOnly bool, outMediaType string, in []byte, out io.Writer) error {
+	inMediaType, in, err := encoding.DetectAndExtract(in)
+	if err != nil {
+		return err
+	}
+
 	if metaOnly {
-		return encoding.DecodeMeta(in, out)
+		return encoding.DecodeSummary(inMediaType, in, out)
 	}
 
-	if outMediaType == encoding.ProtobufMediaType {
-		return encoding.DecodeRaw(in, out)
-	}
-
-	return encoding.Convert(outMediaType, in, out)
+	return encoding.Convert(inMediaType, outMediaType, in, out)
 }
 
 // Readinput reads command line input, either from a provided input file or from stdin.
@@ -122,9 +123,15 @@ func readInput(inputFilename string) ([]byte, error) {
 		data = stripNewline(data)
 		return data, nil
 	}
-	// TODO: verify if ReadAll is a reasonable way to read binary from stdin
-	// TODO: detect if no stdin is provided (like grep does), e.g.:
-	//   if (os.Stdin.Stat().Mode() & os.ModeCharDevice) == 0 { data being piped in }
+
+	stat, err := os.Stdin.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stdin error: %s", err)
+	}
+	if (stat.Mode() & os.ModeCharDevice) != 0 {
+		fmt.Fprintln(os.Stderr, "warn: waiting on stdin from tty")
+	}
+
 	stdin, err := ioutil.ReadAll(os.Stdin)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read data from stdin: %v", err)

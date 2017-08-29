@@ -217,11 +217,11 @@ func printKeys(filename string, keyPrefix string, out io.Writer) error {
 }
 
 func convert(outMediaType string, in []byte, out io.Writer) error {
-	if outMediaType == encoding.ProtobufMediaType {
-		return encoding.DecodeRaw(in, out)
+	inMediaType, in, err := encoding.DetectAndExtract(in)
+	if err != nil {
+		return err
 	}
-
-	return encoding.Convert(outMediaType, in, out)
+	return encoding.Convert(inMediaType, outMediaType, in, out)
 }
 
 func listKeys(filename string, prefix string) ([]string, error) {
