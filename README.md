@@ -41,9 +41,10 @@ kvstore-tool extract -f <boltdb-file> -k /registry/pods/default/<pod-name>
 TODO
 ----
 
-[ ] Add a docker based build so we can simplify the instructions and minimize the number of environment based build problems
-[ ] Add write support - ability to encode data back to storage format
-[ ] Add detection of unrecognized fields in stored data, which would suggest data was written with newer version of
-    proto schema
-[ ] Add ability to decode using proto files from a provided kubernetes project directory
-[ ] Add auto-detection of data stored as json, decode appropriately
+- [ ] Add a docker based build so we can simplify the instructions and
+      minimize the number of environment based build problems
+- [ ] Add write support - ability to encode data back to storage format
+- [ ] Add detection of unrecognized fields in stored data, which would suggest
+      data was written with newer version of proto schema
+- [ ] Add ability to decode using proto files from a provided kubernetes project directory
+- [ ] Add auto-detection of data stored as json, decode appropriately
