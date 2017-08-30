@@ -1,3 +1,2 @@
-MediaType: application/vnd.kubernetes.protobuf
 TypeMeta.APIVersion: batch/v1
 TypeMeta.Kind: Job

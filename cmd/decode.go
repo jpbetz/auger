@@ -79,7 +79,7 @@ func init() {
 	RootCmd.AddCommand(decodeCmd)
 	decodeCmd.Flags().StringVarP(&options.out, "output", "o", "yaml", "Output format. One of: json|yaml|proto")
 	decodeCmd.Flags().BoolVar(&options.metaOnly, "meta-only", false, "Output only content type and metadata fields")
-	decodeCmd.Flags().StringVarP(&options.inputFilename, "file", "f", "", "Filename to read storage encoded data from")
+	decodeCmd.Flags().StringVar(&options.inputFilename, "file", "", "Filename to read storage encoded data from")
 }
 
 // Validate the command line flags and run the command.
