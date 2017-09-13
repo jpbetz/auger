@@ -1,26 +1,35 @@
 kvstore-tool
 ------------
-Decodes kubernetes objects from the binary storage and JSON encodings persisted to etcd. Outputs to YAML, JSON, or Protobuf.
 
-Installation
-------------
+Directly access data objects stored in `etcd` by `kubernetes`.
 
-Requirements:
+Encodes and decodes Kubernetes objects from the binary storage encoding used to
+store data to `etcd`. Supports data conversion to `YAML`, `JSON` and `Protobuf`.
 
-- [glide](https://github.com/Masterminds/glide)
-- go 1.8.3+
+Automatically determines if etcd data is stored in `JSON` (`kubernetes` `1.5` and
+earlier) or binary (`kubernetes` `1.6` and newer) and decodes accordingly.
 
-``` sh
-$ go get -d github.com/jpbetz/kvstore-tool
-$ cd $GOPATH/src/github.com/jpbetz/kvstore-tool
-$ glide install --strip-vendor
-$ go install
-```
+Why?
+----
 
-Example Usage
--------------
+In earlier versions of `kubernetes`, data written to `etcd` was stored as `JSON`
+and could easily be inspected or manipulated using standard tools such as
+`etcdctl`. In `kubernetes` `1.6+`, for efficiency reasons, much of the data is
+now stored in a binary storage representation, and is non-trivial to decode-- it
+contains a enveloped payload that must be unpacked, type resolved and decoded.
 
-Decode a pod from etcd v3, where `<pod-name>` is the name of one of your pods:
+This tool provides `kubernetes` developers and cluster operators with simple way
+to access the binary storage data via `YAML` and `JSON`.
+
+Use cases
+---------
+
+### Access data via etcdctl
+
+A kubernetes developer or cluster operator needs to inspect the data actually
+stored to etcd for a particular kubernetes object.
+
+E.g., decode a pod from etcd v3, where `<pod-name>` is the name of one of your pods:
 
 ``` sh
 ETCDCTL_API=3 etcdctl get /registry/pods/default/<pod-name> | kvstore-tool decode
@@ -32,10 +41,33 @@ ETCDCTL_API=3 etcdctl get /registry/pods/default/<pod-name> | kvstore-tool decod
 > ...
 ```
 
-Find an etcd value by it's key and extract it from a boltdb file:
+### Modify data via etcdctl
+
+A kubernetes developer or etcd developer needs to modify state of an object stored in etcd.
+
+E.g. Write an updated pod to etcd v3:
+
+``` sh
+cat updated-pod.yaml | kvstore-tool encode | ETCDCTL_API=3 etcdctl put /registry/pods/default/<pod-name>
+```
+
+### Access data directly from db file
+
+A cluster operator, kubernetes developer or etcd developer is needs to inspect
+etcd data without starting etcd. In extreme cases, it may not be possible to
+start etcd and inspecting the data may help a etcd developer understand what
+state it is in.
+
+E.g. find an etcd value by it's key and extract it from a boltdb file:
 
 ``` sh
 kvstore-tool extract -f <boltdb-file> -k /registry/pods/default/<pod-name>
+> apiVersion: v1
+> kind: Pod
+> metadata:
+>   annotations: ...
+>   creationTimestamp: 2017-06-27T16:35:34Z
+> ...
 ```
 
 TODO

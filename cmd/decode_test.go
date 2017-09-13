@@ -66,10 +66,17 @@ func TestDecode(t *testing.T) {
 }
 
 func assertMatchesFile(t *testing.T, out *bytes.Buffer, filename string) {
-	s := out.String()
-	expected := string(readTestFile(t, filename))
-	if s != expected {
-		t.Errorf("got:\n%s\nwanted:\n%s", s, expected)
+	b := out.Bytes()
+	expected := readTestFile(t, filename)
+	if !bytes.Equal(b, expected) {
+		t.Errorf(`got input of length %d, wanted input of length %d
+==== BEGIN RECIEVED FILE ====
+%s
+====END RECIEVED FILE ====
+====BEGIN EXPECTED FILE ====
+%s
+==== END EXPECTED FILE ====
+`, len(b), len(expected), b, expected)
 	}
 }
 

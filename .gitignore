@@ -1,24 +1,20 @@
-*.iml
-*.pyc
-*.swp
-*~
-kubeconfig
-.kubeconfig
-log/**
-pid/**
-bin/**
-coverage.html
-.idea/
-.DS_Store
-.glide
-.scBuildImage
-.init
-.generate*
-.envrc
-build/*/tmp/*
-contrib/build/*/tmp/*
-.pkg
-.kube
-.var
 kvstore-tool
+build
 vendor
+
+# IDEs
+*.iml
+*~
+.idea/
+
+# OS X
+.DS_Store
+
+# Go
+*.out
+*.exe
+*.dll
+*.so
+*.dylib
+coverage.html
+.glide/

@@ -28,7 +28,7 @@ var findProtoTests = []struct {
 }{
 	{string(ProtoEncodingPrefix), true, string(ProtoEncodingPrefix)},
 	{fmt.Sprintf("xxxxxx%s...end", ProtoEncodingPrefix), true, fmt.Sprintf("%s...end", ProtoEncodingPrefix)},
-	{fmt.Sprintf("xxxxxx{}", ProtoEncodingPrefix), false, ""},
+	{fmt.Sprintf("xxxxxx{}"), false, ""},
 }
 
 func TestTryFindProto(t *testing.T) {
@@ -75,7 +75,7 @@ func TestTryFindJson(t *testing.T) {
 			if err != nil {
 				t.Errorf("unable to marshal json match: %v for %+v", err, test)
 			} else if string(js) != test.expected {
-				t.Errorf("got %s, want %s for %+v", out, test.expected, test)
+				t.Errorf("got %s, want %s for %+v", string(js), test.expected, test)
 			}
 		}
 	}

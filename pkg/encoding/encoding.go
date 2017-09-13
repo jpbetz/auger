@@ -23,6 +23,8 @@ import (
 	"io"
 	"strings"
 
+	yaml "gopkg.in/yaml.v2"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apiserver/pkg/server/storage"
@@ -31,9 +33,10 @@ import (
 )
 
 const (
-	ProtobufMediaType = "application/vnd.kubernetes.protobuf"
-	YamlMediaType     = "application/yaml"
-	JsonMediaType     = "application/json"
+	StorageBinaryMediaType = "application/vnd.kubernetes.storagebinary"
+	ProtobufMediaType      = "application/vnd.kubernetes.protobuf"
+	YamlMediaType          = "application/yaml"
+	JsonMediaType          = "application/json"
 
 	ProtobufShortname = "proto"
 	YamlShortname     = "yaml"
@@ -60,10 +63,12 @@ func ToMediaType(out string) (string, error) {
 // Convert from kv store encoded data to the given output format using kubernetes' api machinery to
 // perform the conversion.
 func Convert(inMediaType, outMediaType string, in []byte, out io.Writer) error {
-
-	// TODO: move this elsewhere, I need to be able to use ths function to write data back to etcd or boltdb
-	if inMediaType == ProtobufMediaType && outMediaType == ProtobufMediaType {
+	if inMediaType == StorageBinaryMediaType && outMediaType == ProtobufMediaType {
 		return DecodeRaw(in, out)
+	}
+
+	if inMediaType == ProtobufMediaType && outMediaType == StorageBinaryMediaType {
+		return fmt.Errorf("unsupported conversion: protobuf to kubernetes binary storage representation")
 	}
 
 	typeMeta, err := decodeTypeMeta(inMediaType, in)
@@ -74,6 +79,7 @@ func Convert(inMediaType, outMediaType string, in []byte, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+
 	inCodec, err := newCodec(groupName, inMediaType)
 	if err != nil {
 		return err
@@ -103,7 +109,7 @@ func Convert(inMediaType, outMediaType string, in []byte, out io.Writer) error {
 // DetectAndExtract searches the the start of either json of protobuf data, and, if found, returns the mime type and data.
 func DetectAndExtract(in []byte) (string, []byte, error) {
 	if pb, ok := tryFindProto(in); ok {
-		return ProtobufMediaType, pb, nil
+		return StorageBinaryMediaType, pb, nil
 	}
 	if rawJs, ok := tryFindJson(in); ok {
 		js, err := rawJs.MarshalJSON()
@@ -167,7 +173,6 @@ func DecodeSummary(inMediaType string, in []byte, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "MediaType: %s\n", inMediaType)
 	fmt.Fprintf(out, "TypeMeta.APIVersion: %s\n", typeMeta.APIVersion)
 	fmt.Fprintf(out, "TypeMeta.Kind: %s\n", typeMeta.Kind)
 	return nil
@@ -192,6 +197,10 @@ func DecodeUnknown(in []byte) (*runtime.Unknown, error) {
 
 // NewCodec creates a new kubernetes storage codec for encoding and decoding persisted data.
 func newCodec(groupName string, mediaType string) (runtime.Codec, error) {
+	// For api machinery purposes, we treat StorageBinaryMediaType as ProtobufMediaType
+	if mediaType == StorageBinaryMediaType {
+		mediaType = ProtobufMediaType
+	}
 	// Resource is ignored by {Storage,InMemory}EncodingFor, so we only set the group.
 	groupResource := schema.GroupResource{Group: groupName}
 	resourceEncodingConfig := storage.NewDefaultResourceEncodingConfig(api.Registry)
@@ -222,8 +231,10 @@ func decodeTypeMeta(inMediaType string, in []byte) (*runtime.TypeMeta, error) {
 	switch inMediaType {
 	case JsonMediaType:
 		return typeMetaFromJson(in)
-	case ProtobufMediaType:
-		return typeMetaFromProto(in)
+	case StorageBinaryMediaType:
+		return typeMetaFromBinaryStorage(in)
+	case YamlMediaType:
+		return typeMetaFromYaml(in)
 	default:
 		return nil, fmt.Errorf("unsupported inMediaType %s", inMediaType)
 	}
@@ -235,12 +246,18 @@ func typeMetaFromJson(in []byte) (*runtime.TypeMeta, error) {
 	return &meta, nil
 }
 
-func typeMetaFromProto(in []byte) (*runtime.TypeMeta, error) {
+func typeMetaFromBinaryStorage(in []byte) (*runtime.TypeMeta, error) {
 	unknown, err := DecodeUnknown(in)
 	if err != nil {
 		return nil, err
 	}
 	return &unknown.TypeMeta, nil
+}
+
+func typeMetaFromYaml(in []byte) (*runtime.TypeMeta, error) {
+	var meta runtime.TypeMeta
+	yaml.Unmarshal(in, &meta)
+	return &meta, nil
 }
 
 // decodeGroupName gets a group name from a TypeMeta's apiVersion.
