@@ -17,11 +17,10 @@ build: vendor
 # Local development test
 # `go test` automatically manages the build, so no need to depend on the build target here in make
 test: vendor
-	@export GO_SRC="$$(go list ./... | grep -v /vendor/)"
 	@echo Vetting
-	@go vet $$GO_SRC
+	go vet $$(go list ./... | grep -v /vendor/)
 	@echo Testing
-	@go test $$GO_SRC
+	go test $$(go list ./... | grep -v /vendor/)
 
 # Dockerized build
 release:
