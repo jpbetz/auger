@@ -20,6 +20,8 @@ import (
 	"bytes"
 	"io/ioutil"
 	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/coreos/etcd/mvcc/mvccpb"
@@ -88,6 +90,13 @@ func readTestFile(t *testing.T, filename string) []byte {
 	in, err := ioutil.ReadAll(f)
 	if err != nil {
 		t.Fatalf("failed to read test data file, %v", err)
+	}
+	if strings.HasSuffix(filename, "yaml") {
+		r, err := regexp.Compile("#[^\n]*\n")
+		if err != nil {
+			t.Fatalf("failed to strip comments from yaml file, %v", err)
+		}
+		return r.ReplaceAll(in, []byte(""))
 	}
 	return in
 }
