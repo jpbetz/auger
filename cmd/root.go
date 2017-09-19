@@ -26,7 +26,7 @@ import (
 var cfgFile string
 
 var RootCmd = &cobra.Command{
-	Use:   "kvstore-tool",
+	Use:   "auger",
 	Short: "Inspect and analyze kubernetes storage data.",
 	Long: `Inspect and analyze kubernetes objects in binary storage
 encoding used with etcd 3+ and boltdb.`,

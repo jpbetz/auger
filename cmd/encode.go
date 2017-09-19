@@ -21,7 +21,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/kubernetes-incubator/kvstore-tool/pkg/encoding"
+	"github.com/kubernetes-incubator/auger/pkg/encoding"
 	"github.com/spf13/cobra"
 
 	// TODO: This has a side effect of registering the "" group, which I need.
@@ -36,7 +36,7 @@ with etcd 3+.
 `
 
 	encodeExample = `
-	    cat pod.yaml | kvstore-tool encode | \
+	    cat pod.yaml | auger encode | \
 	    ETCDCTL_API=3 etcdctl put /registry/pods/default/<pod-name>`
 )
 

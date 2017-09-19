@@ -25,7 +25,7 @@ import (
 	"testing"
 
 	"github.com/coreos/etcd/mvcc/mvccpb"
-	"github.com/kubernetes-incubator/kvstore-tool/pkg/encoding"
+	"github.com/kubernetes-incubator/auger/pkg/encoding"
 )
 
 var decodeTests = []struct {

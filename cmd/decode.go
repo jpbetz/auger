@@ -22,7 +22,7 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/kubernetes-incubator/kvstore-tool/pkg/encoding"
+	"github.com/kubernetes-incubator/auger/pkg/encoding"
 	"github.com/spf13/cobra"
 
 	// TODO: This has a side effect of registering the "" group, which I need.
@@ -54,7 +54,7 @@ of the protobuf payload.`
 
 	decodeExample = `
         ETCDCTL_API=3 etcdctl get /registry/pods/default/<pod-name> \
-        --print-value-only | kvstore-tool decode`
+        --print-value-only | auger decode`
 )
 
 var decodeCmd = &cobra.Command{

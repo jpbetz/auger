@@ -1,5 +1,5 @@
-kvstore-tool
-------------
+Auger
+-----
 
 Directly access data objects stored in `etcd` by `kubernetes`.
 
@@ -32,7 +32,7 @@ stored to etcd for a particular kubernetes object.
 E.g., decode a pod from etcd v3, where `<pod-name>` is the name of one of your pods:
 
 ``` sh
-ETCDCTL_API=3 etcdctl get /registry/pods/default/<pod-name> | kvstore-tool decode
+ETCDCTL_API=3 etcdctl get /registry/pods/default/<pod-name> | auger decode
 > apiVersion: v1
 > kind: Pod
 > metadata:
@@ -48,7 +48,7 @@ A kubernetes developer or etcd developer needs to modify state of an object stor
 E.g. Write an updated pod to etcd v3:
 
 ``` sh
-cat updated-pod.yaml | kvstore-tool encode | ETCDCTL_API=3 etcdctl put /registry/pods/default/<pod-name>
+cat updated-pod.yaml | auger encode | ETCDCTL_API=3 etcdctl put /registry/pods/default/<pod-name>
 ```
 
 ### Access data directly from db file
@@ -61,7 +61,7 @@ state it is in.
 E.g. find an etcd value by it's key and extract it from a boltdb file:
 
 ``` sh
-kvstore-tool extract -f <boltdb-file> -k /registry/pods/default/<pod-name>
+auger extract -f <boltdb-file> -k /registry/pods/default/<pod-name>
 > apiVersion: v1
 > kind: Pod
 > metadata:
@@ -73,10 +73,8 @@ kvstore-tool extract -f <boltdb-file> -k /registry/pods/default/<pod-name>
 TODO
 ----
 
-- [ ] Add a docker based build so we can simplify the instructions and
-      minimize the number of environment based build problems
-- [ ] Add write support - ability to encode data back to storage format
+- [ ] Warn if attempting to read data written by a different version of kubernetes
 - [ ] Add detection of unrecognized fields in stored data, which would suggest
       data was written with newer version of proto schema
-- [ ] Add ability to decode using proto files from a provided kubernetes project directory
-- [ ] Add auto-detection of data stored as json, decode appropriately
+- [ ] Enable travis CI
+- [ ] Build and publish releases for all recent kubernetes versions (1.6+)

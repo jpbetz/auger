@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kubernetes-incubator/kvstore-tool/cmd"
+	"github.com/kubernetes-incubator/auger/cmd"
 )
 
 func main() {

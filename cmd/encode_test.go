@@ -20,7 +20,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/kubernetes-incubator/kvstore-tool/pkg/encoding"
+	"github.com/kubernetes-incubator/auger/pkg/encoding"
 )
 
 var encodeTests = []struct {

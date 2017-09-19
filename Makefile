@@ -1,4 +1,4 @@
-NAME?=kvstore-tool
+NAME?=auger
 PKG?=github.com/kubernetes-incubator/$(NAME)
 GO_VERSION?=1.8.3
 ARCH?=amd64

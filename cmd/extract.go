@@ -26,7 +26,7 @@ import (
 
 	bolt "github.com/coreos/bbolt"
 	"github.com/coreos/etcd/mvcc/mvccpb"
-	"github.com/kubernetes-incubator/kvstore-tool/pkg/encoding"
+	"github.com/kubernetes-incubator/auger/pkg/encoding"
 	"github.com/spf13/cobra"
 )
 
@@ -43,13 +43,13 @@ for the '.db' file lock.`
 
 	extractExample = `
         # Find an etcd value by it's key and extract it from a boltdb file:
-        kvstore-tool extract -f <boltdb-file> -k /registry/pods/default/<pod-name>
+        auger extract -f <boltdb-file> -k /registry/pods/default/<pod-name>
 
         # Extract the etcd value stored in page 10, item 0 of a boltdb file:
-        bolt page --item 0 --value-only <boltdb-file> 10 | kvstore-tool extract --leaf-item
+        bolt page --item 0 --value-only <boltdb-file> 10 | auger extract --leaf-item
 
         # Extract the key:
-        bolt page --item 0 --value-only <boltdb-file> 10 | kvstore-tool extract --leaf-item --print-key
+        bolt page --item 0 --value-only <boltdb-file> 10 | auger extract --leaf-item --print-key
 `
 )
 
