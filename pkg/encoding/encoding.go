@@ -21,15 +21,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 
 	yaml "gopkg.in/yaml.v2"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apiserver/pkg/server/storage"
-	"k8s.io/apiserver/pkg/storage/storagebackend"
-	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 )
 
 const (
@@ -75,28 +72,23 @@ func Convert(inMediaType, outMediaType string, in []byte, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	groupName, err := decodeGroupName(typeMeta.APIVersion)
+	inCodec, err := newCodec(typeMeta, inMediaType)
 	if err != nil {
 		return err
 	}
-
-	inCodec, err := newCodec(groupName, inMediaType)
-	if err != nil {
-		return err
-	}
-	outCodec, err := newCodec(groupName, outMediaType)
+	outCodec, err := newCodec(typeMeta, outMediaType)
 	if err != nil {
 		return err
 	}
 
 	obj, err := runtime.Decode(inCodec, in)
 	if err != nil {
-		return err
+		return fmt.Errorf("error decoding from %s: %s", inMediaType, err)
 	}
 
 	encoded, err := runtime.Encode(outCodec, obj)
 	if err != nil {
-		return err
+		return fmt.Errorf("error encoding to %s: %s", outMediaType, err)
 	}
 
 	_, err = out.Write(encoded)
@@ -196,33 +188,28 @@ func DecodeUnknown(in []byte) (*runtime.Unknown, error) {
 }
 
 // NewCodec creates a new kubernetes storage codec for encoding and decoding persisted data.
-func newCodec(groupName string, mediaType string) (runtime.Codec, error) {
+func newCodec(typeMeta *runtime.TypeMeta, mediaType string) (runtime.Codec, error) {
 	// For api machinery purposes, we treat StorageBinaryMediaType as ProtobufMediaType
 	if mediaType == StorageBinaryMediaType {
 		mediaType = ProtobufMediaType
 	}
-	// Resource is ignored by {Storage,InMemory}EncodingFor, so we only set the group.
-	groupResource := schema.GroupResource{Group: groupName}
-	resourceEncodingConfig := storage.NewDefaultResourceEncodingConfig(api.Registry)
-	storageEncoding, err := resourceEncodingConfig.StorageEncodingFor(groupResource)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize storage encoding: %v", err)
+	mediaTypes := Codecs.SupportedMediaTypes()
+
+	info, ok := runtime.SerializerInfoForMediaType(mediaTypes, mediaType)
+	if !ok {
+		if len(mediaTypes) == 0 {
+			return nil, fmt.Errorf("no serializers registered for %v", mediaTypes)
+		}
+		info = mediaTypes[0]
 	}
-	memoryEncoding, err := resourceEncodingConfig.InMemoryEncodingFor(groupResource)
+	cfactory := serializer.DirectCodecFactory{CodecFactory: Codecs}
+	gv, err := schema.ParseGroupVersion(typeMeta.APIVersion)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize memory encoding: %v", err)
+		return nil, fmt.Errorf("unable to parse meta APIVersion '%s': %s", typeMeta.APIVersion, err)
 	}
-	// TODO: Find a provided initializer for the codec instead of creating the struct directly.
-	codec, err := storage.NewStorageCodec(storage.StorageCodecConfig{
-		StorageMediaType:  mediaType,
-		Config:            storagebackend.Config{Type: storagebackend.StorageTypeETCD3},
-		StorageSerializer: api.Codecs,
-		StorageVersion:    storageEncoding,
-		MemoryVersion:     memoryEncoding,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize codec: %v", err)
-	}
+	encoder := cfactory.EncoderForVersion(info.Serializer, gv)
+	decoder := cfactory.DecoderToVersion(info.Serializer, gv)
+	codec := cfactory.CodecForVersions(encoder, decoder, gv, gv)
 	return codec, nil
 }
 
@@ -258,17 +245,4 @@ func typeMetaFromYaml(in []byte) (*runtime.TypeMeta, error) {
 	var meta runtime.TypeMeta
 	yaml.Unmarshal(in, &meta)
 	return &meta, nil
-}
-
-// decodeGroupName gets a group name from a TypeMeta's apiVersion.
-func decodeGroupName(apiVersion string) (string, error) {
-	parts := strings.Split(apiVersion, "/")
-	switch len(parts) {
-	case 1:
-		return "", nil
-	case 2:
-		return parts[0], nil
-	default:
-		return "", fmt.Errorf("Unrecognized TypeMeta.APIVersion string: %s", apiVersion)
-	}
 }
