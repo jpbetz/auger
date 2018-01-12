@@ -24,10 +24,6 @@ import (
 
 	"github.com/kubernetes-incubator/auger/pkg/encoding"
 	"github.com/spf13/cobra"
-
-	// TODO: This has a side effect of registering the "" group, which I need.
-	// But we should do this in a clear and explicit way.
-	_ "k8s.io/kubernetes/pkg/kubeapiserver/options"
 )
 
 var (

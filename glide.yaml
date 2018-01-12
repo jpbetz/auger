@@ -12,17 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package: kubernetes-incubator/data-tools
+package: kubernetes-incubator/auger
 import:
 - package: github.com/spf13/pflag
-  version: e57e3eeb33f795204c1ca35f56c44f83227c6e66
+  version: v1.0.0
 - package: github.com/coreos/etcd
-  version: 20490caaf0dcd96bb4a95e40625559def8ef5b04
+  version: v3.1.5
 - package: github.com/coreos/bbolt
-  version: ad39960eb40bb33c9bda31bed2eaf4fdda15efe6
-- package: k8s.io/kubernetes
-  version: ebb8d6e0fadfc95f3d64ccecc36c8ed2ac9224ef
+  version: v1.3.1-coreos.3
 - package: github.com/golang/glog
   version: 23def4e6c14b4da8ac2ed8007337bc5eb5007998
 - package: github.com/spf13/cobra
-  version: cb731b898346822cc0c225c28550a8a29d93c732
+  version: v0.0.1
+- package: k8s.io/api
+  version: kubernetes-1.9.0-alpha.1
+- package: k8s.io/apimachinery
+  version: kubernetes-1.9.0-alpha.1
+- package: k8s.io/apiserver
+  version: kubernetes-1.9.0-alpha.1

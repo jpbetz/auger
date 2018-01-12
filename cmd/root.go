@@ -32,8 +32,6 @@ var RootCmd = &cobra.Command{
 encoding used with etcd 3+ and boltdb.`,
 }
 
-// TODO: Provide a version flag that details which kubernetes version the tool was built from/for.
-
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
