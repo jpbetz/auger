@@ -23,6 +23,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 
 	bolt "github.com/coreos/bbolt"
 	"github.com/coreos/etcd/mvcc/mvccpb"
@@ -45,10 +46,13 @@ for the '.db' file lock.`
         # Find an etcd value by it's key and extract it from a boltdb file:
         auger extract -f <boltdb-file> -k /registry/pods/default/<pod-name>
 
+        # List the keys and size of all entries in etcd
+        auger extract -f <boltdb-file> --fields=key,value-size
+
         # Extract the etcd value stored in page 10, item 0 of a boltdb file:
         bolt page --item 0 --value-only <boltdb-file> 10 | auger extract --leaf-item
 
-        # Extract the key:
+        # Extract the etcd key stored in page 10, item 0 of a boltdb file:
         bolt page --item 0 --value-only <boltdb-file> 10 | auger extract --leaf-item --print-key
 `
 )
@@ -72,8 +76,9 @@ type extractOptions struct {
 	listVersions bool
 	leafItem     bool
 	printKey     bool
-	summary      bool
+	metaSummary  bool
 	raw          bool
+	fields       string
 }
 
 var opts *extractOptions = &extractOptions{}
@@ -88,9 +93,19 @@ func init() {
 	extractCmd.Flags().BoolVar(&opts.listVersions, "list-versions", false, "List out all versions of the key, requires --key")
 	extractCmd.Flags().BoolVar(&opts.leafItem, "leaf-item", false, "Read the input as a boltdb leaf page item.")
 	extractCmd.Flags().BoolVar(&opts.printKey, "print-key", false, "Print the key of the matching entry")
-	extractCmd.Flags().BoolVar(&opts.summary, "summary", false, "Print a summary of the matching entry")
+	extractCmd.Flags().BoolVar(&opts.metaSummary, "meta-summary", false, "Print a summary of the metadata of the matching entry")
 	extractCmd.Flags().BoolVar(&opts.raw, "raw", false, "Don't attempt to decode the etcd value")
+	extractCmd.Flags().StringVar(&opts.fields, "fields", Key, fmt.Sprintf("Fields to include when listing entries, comma separated list of: %v", SummaryFields))
 }
+
+const (
+	Key                  = "key"
+	ValueSize            = "value-size"
+	AllVersionsValueSize = "all-versions-value-size"
+	VersionCount         = "version-count"
+)
+
+var SummaryFields = []string{Key, ValueSize, AllVersionsValueSize, VersionCount}
 
 // See etcd/mvcc/kvstore.go:keyBucketName
 var keyBucket = []byte("key")
@@ -115,7 +130,7 @@ func extractValidateAndRun() error {
 		if err != nil {
 			return fmt.Errorf("failed to extract etcd key-value record from boltdb leaf item: %s", err)
 		}
-		if opts.summary {
+		if opts.metaSummary {
 			return printLeafItemSummary(kv, out)
 		} else if opts.printKey {
 			return printLeafItemKey(kv, out)
@@ -133,7 +148,8 @@ func extractValidateAndRun() error {
 	case !hasKey && hasVersion:
 		return fmt.Errorf("--version may only be used with --key")
 	default:
-		return printKeys(opts.filename, opts.keyPrefix, out)
+		fields := strings.Split(opts.fields, ",")
+		return printKeySummaries(opts.filename, opts.keyPrefix, fields, out)
 	}
 }
 
@@ -204,14 +220,22 @@ func printLeafItemValue(kv *mvccpb.KeyValue, outMediaType string, out io.Writer)
 	return convert(outMediaType, kv.Value, out)
 }
 
-// printKeys prints all keys in the db file with the given key prefix.
-func printKeys(filename string, keyPrefix string, out io.Writer) error {
-	keys, err := listKeys(filename, keyPrefix)
+// printKeySummaries prints all keys in the db file with the given key prefix.
+func printKeySummaries(filename string, keyPrefix string, fields []string, out io.Writer) error {
+	if len(fields) == 0 {
+		return fmt.Errorf("no fields provided, nothing to output.")
+	}
+
+	summaries, err := listKeySummaries(filename, keyPrefix)
 	if err != nil {
 		return err
 	}
-	for _, k := range keys {
-		fmt.Fprintf(out, "%s\n", k)
+	for _, s := range summaries {
+		summary, err := s.summarize(fields)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "%s\n", summary)
 	}
 	return nil
 }
@@ -224,19 +248,69 @@ func convert(outMediaType string, in []byte, out io.Writer) error {
 	return encoding.Convert(inMediaType, outMediaType, in, out)
 }
 
-func listKeys(filename string, prefix string) ([]string, error) {
+type keySummary struct {
+	key                  string
+	version              int64
+	versionCount         int
+	keySize              int
+	valueSize            int
+	allVersionsKeySize   int
+	allVersionsValueSize int
+}
+
+func (s *keySummary) summarize(fields []string) (string, error) {
+	values := make([]string, len(fields))
+	for i, field := range fields {
+		switch field {
+		case Key:
+			values[i] = fmt.Sprintf("%s", s.key)
+		case ValueSize:
+			values[i] = fmt.Sprintf("%d", s.valueSize)
+		case AllVersionsValueSize:
+			values[i] = fmt.Sprintf("%d", s.allVersionsValueSize)
+		case VersionCount:
+			values[i] = fmt.Sprintf("%d", s.versionCount)
+		default:
+			return "", fmt.Errorf("unrecognized field: %s", field)
+		}
+	}
+	return strings.Join(values, " "), nil
+}
+
+func listKeySummaries(filename string, prefix string) ([]*keySummary, error) {
 	prefixBytes := []byte(prefix)
-	m := make(map[string]bool)
+	m := make(map[string]*keySummary)
 	err := walk(filename, func(kv *mvccpb.KeyValue) (bool, error) {
 		if bytes.HasPrefix(kv.Key, prefixBytes) {
-			m[string(kv.Key)] = true
+			ks, ok := m[string(kv.Key)]
+			if !ok {
+				ks = &keySummary{
+					key:                  string(kv.Key),
+					version:              kv.Version,
+					keySize:              len(kv.Key),
+					valueSize:            len(kv.Value),
+					allVersionsKeySize:   len(kv.Key),
+					allVersionsValueSize: len(kv.Value),
+					versionCount:         1,
+				}
+				m[string(kv.Key)] = ks
+			} else {
+				if kv.Version > ks.version {
+					ks.version = kv.Version
+					ks.valueSize = len(kv.Value)
+				}
+				ks.versionCount += 1
+				ks.allVersionsKeySize += len(kv.Key)
+				ks.allVersionsValueSize += len(kv.Value)
+			}
+
 		}
 		return false, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	result := getSortedKeys(m)
+	result := getSortedKeySummaries(m)
 	return result, nil
 }
 
@@ -319,14 +393,16 @@ func extractKvFromLeafItem(raw []byte) (*mvccpb.KeyValue, error) {
 	return kv, nil
 }
 
-func getSortedKeys(m map[string]bool) []string {
-	result := make([]string, len(m))
+func getSortedKeySummaries(m map[string]*keySummary) []*keySummary {
+	result := make([]*keySummary, len(m))
 	i := 0
-	for k := range m {
-		result[i] = k
+	for _, v := range m {
+		result[i] = v
 		i++
 	}
-	sort.Strings(result)
+	sort.Slice(result, func(i, j int) bool {
+		return strings.Compare(result[i].key, result[j].key) <= 0
+	})
 
 	return result
 }
