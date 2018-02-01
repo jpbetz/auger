@@ -25,15 +25,24 @@ import (
 )
 
 const (
-	dbFile = "testdata/boltdb/db"
+	dbFile            = "testdata/boltdb/db"
+	dbWithHistoryFile = "testdata/boltdb/db-with-history"
 )
 
 func TestListKeys(t *testing.T) {
 	out := new(bytes.Buffer)
-	if err := printKeys(dbFile, "", out); err != nil {
+	if err := printKeySummaries(dbFile, "", []string{"key"}, out); err != nil {
 		t.Fatal(err)
 	}
 	assertMatchesFile(t, out, "testdata/boltdb/keys.txt")
+}
+
+func TestListKeySummaries(t *testing.T) {
+	out := new(bytes.Buffer)
+	if err := printKeySummaries(dbWithHistoryFile, "", []string{"key", "version-count", "value-size", "all-versions-value-size"}, out); err != nil {
+		t.Fatal(err)
+	}
+	assertMatchesFile(t, out, "testdata/boltdb/keys-with-history.txt")
 }
 
 func TestListKeyVersions(t *testing.T) {

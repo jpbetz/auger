@@ -17,7 +17,7 @@ import:
 - package: github.com/spf13/pflag
   version: v1.0.0
 - package: github.com/coreos/etcd
-  version: v3.1.5
+  version: v3.1.11
 - package: github.com/coreos/bbolt
   version: v1.3.1-coreos.3
 - package: github.com/golang/glog
