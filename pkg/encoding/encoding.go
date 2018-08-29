@@ -113,7 +113,7 @@ func DetectAndExtract(in []byte) (string, []byte, error) {
 	return "", nil, fmt.Errorf("error reading input, does not appear to contain valid JSON or binary data")
 }
 
-// TryFindProto searches for the 'ks8\0' prefix, and, if found, returns the data starting with the prefix.
+// TryFindProto searches for the 'k8s\0' prefix, and, if found, returns the data starting with the prefix.
 func tryFindProto(in []byte) ([]byte, bool) {
 	i := bytes.Index(in, ProtoEncodingPrefix)
 	if i >= 0 && i < len(in) {
