@@ -22,8 +22,11 @@ import (
 	"io/ioutil"
 	"os"
 
+	"bufio"
+	"encoding/hex"
 	"github.com/kubernetes-incubator/auger/pkg/encoding"
 	"github.com/spf13/cobra"
+	"bytes"
 )
 
 var (
@@ -67,6 +70,7 @@ type decodeOptions struct {
 	out           string
 	metaOnly      bool
 	inputFilename string
+	batchProcess  bool // special flag to handle incoming etcd-dump-logs output
 }
 
 var options *decodeOptions = &decodeOptions{}
@@ -76,6 +80,7 @@ func init() {
 	decodeCmd.Flags().StringVarP(&options.out, "output", "o", "yaml", "Output format. One of: json|yaml|proto")
 	decodeCmd.Flags().BoolVar(&options.metaOnly, "meta-only", false, "Output only content type and metadata fields")
 	decodeCmd.Flags().StringVar(&options.inputFilename, "file", "", "Filename to read storage encoded data from")
+	decodeCmd.Flags().BoolVar(&options.batchProcess, "batch-process", false, "If set, deccode batch of objects from os.Stdin")
 }
 
 // Validate the command line flags and run the command.
@@ -84,6 +89,11 @@ func validateAndRun() error {
 	if err != nil {
 		return err
 	}
+
+	if options.batchProcess {
+		return runInBatchMode(options.metaOnly, outMediaType, os.Stdout)
+	}
+
 	in, err := readInput(options.inputFilename)
 	if len(in) == 0 {
 		return fmt.Errorf("no input data")
@@ -93,6 +103,64 @@ func validateAndRun() error {
 	}
 
 	return run(options.metaOnly, outMediaType, in, os.Stdout)
+}
+
+// runInBatchMode runs when batchProcess is set to true.
+// Original requirement is from etcd WAL log analysis tool etcd-dump-logs,
+// (etcd-dump-logs: add decoder support #9790 https://github.com/coreos/etcd/pull/9790)
+// to serve as a decoder to decode k8s objects from each entry of the etcd WAL log.
+// Read data from os.Stdin, decode object line by line, and print out to os.Stdout.
+//
+// In etcd-dump-logs, when batchProcess mode is on, two columns are listed for decoder:
+// "decoder_status" and "decoded_data". In this case, Auger has two possible output:
+// 1. "OK" for decoder_status, actual decoded data for decoded_data
+// 2. "ERROR:Auger error" for decoder_status, decoded_data column would be empty in this case.
+func runInBatchMode(metaOnly bool, outMediaType string, out io.Writer) (err error) {
+	inputReader := bufio.NewReader(os.Stdin)
+	lineNum := 0
+	for {
+		input, err := inputReader.ReadBytes(byte('\n'))
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("error reading --batch-process input: %v\n", err)
+		}
+
+		input = stripNewline(input)
+		decodedinput, err := hex.DecodeString(string(input))
+		if err != nil {
+			return fmt.Errorf("error decoding input on line %d of --batch-process input: %v", lineNum, err)
+		}
+		inMediaType, decodedinput, err := encoding.DetectAndExtract(decodedinput)
+		if err != nil {
+			fmt.Fprintf(out, "ERROR:%v|\n", err)
+			continue
+		}
+
+		if metaOnly {
+			buf := bytes.NewBufferString("")
+			err = encoding.DecodeSummary(inMediaType, decodedinput, buf)
+			if err != nil {
+
+				fmt.Fprintf(out, "ERROR:%v|\n", err)
+			} else {
+				fmt.Fprintf(out, "OK|%s\n", buf.String())
+			}
+			continue
+		}
+
+		buf := bytes.NewBufferString("")
+		err = encoding.Convert(inMediaType, outMediaType, decodedinput, buf)
+		if err != nil {
+			fmt.Fprintf(out, "ERROR:%v|\n", err)
+		} else {
+			fmt.Fprintf(out, "OK|%s\n", buf.String())
+		}
+
+		lineNum++
+	}
+	return nil
 }
 
 // Run the decode command line.
