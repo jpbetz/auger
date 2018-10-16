@@ -103,9 +103,10 @@ const (
 	ValueSize            = "value-size"
 	AllVersionsValueSize = "all-versions-value-size"
 	VersionCount         = "version-count"
+	Value                = "value"
 )
 
-var SummaryFields = []string{Key, ValueSize, AllVersionsValueSize, VersionCount}
+var SummaryFields = []string{Key, ValueSize, AllVersionsValueSize, VersionCount, Value}
 
 // See etcd/mvcc/kvstore.go:keyBucketName
 var keyBucket = []byte("key")
@@ -256,6 +257,7 @@ type keySummary struct {
 	valueSize            int
 	allVersionsKeySize   int
 	allVersionsValueSize int
+	value                string
 }
 
 func (s *keySummary) summarize(fields []string) (string, error) {
@@ -270,6 +272,8 @@ func (s *keySummary) summarize(fields []string) (string, error) {
 			values[i] = fmt.Sprintf("%d", s.allVersionsValueSize)
 		case VersionCount:
 			values[i] = fmt.Sprintf("%d", s.versionCount)
+		case Value:
+			values[i] = fmt.Sprintf("%s", s.value)
 		default:
 			return "", fmt.Errorf("unrecognized field: %s", field)
 		}
@@ -284,6 +288,11 @@ func listKeySummaries(filename string, prefix string) ([]*keySummary, error) {
 		if bytes.HasPrefix(kv.Key, prefixBytes) {
 			ks, ok := m[string(kv.Key)]
 			if !ok {
+				buf := new(bytes.Buffer)
+				if err := convert(encoding.JsonMediaType, kv.Value, buf); err != nil {
+					return true, err
+				}
+				val := strings.TrimSpace(buf.String())
 				ks = &keySummary{
 					key:                  string(kv.Key),
 					version:              kv.Version,
@@ -292,6 +301,7 @@ func listKeySummaries(filename string, prefix string) ([]*keySummary, error) {
 					allVersionsKeySize:   len(kv.Key),
 					allVersionsValueSize: len(kv.Value),
 					versionCount:         1,
+					value:                val,
 				}
 				m[string(kv.Key)] = ks
 			} else {
