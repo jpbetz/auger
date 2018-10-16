@@ -289,10 +289,10 @@ func listKeySummaries(filename string, prefix string) ([]*keySummary, error) {
 			ks, ok := m[string(kv.Key)]
 			if !ok {
 				buf := new(bytes.Buffer)
-				if err := convert(encoding.JsonMediaType, kv.Value, buf); err != nil {
-					return true, err
+				var val string
+				if err := convert(encoding.JsonMediaType, kv.Value, buf); err == nil {
+					val := strings.TrimSpace(buf.String())
 				}
-				val := strings.TrimSpace(buf.String())
 				ks = &keySummary{
 					key:                  string(kv.Key),
 					version:              kv.Version,
