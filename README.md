@@ -21,6 +21,24 @@ contains a enveloped payload that must be unpacked, type resolved and decoded.
 This tool provides `kubernetes` developers and cluster operators with simple way
 to access the binary storage data via `YAML` and `JSON`.
 
+Installation
+------------
+
+Check out and build:
+
+```sh
+git clone https://github.com/jpbetz/auger
+cd auger
+make release
+```
+
+Run:
+
+
+```sh
+build/auger -h
+```
+
 Use cases
 ---------
 
