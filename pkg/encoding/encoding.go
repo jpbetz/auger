@@ -59,43 +59,43 @@ func ToMediaType(out string) (string, error) {
 
 // Convert from kv store encoded data to the given output format using kubernetes' api machinery to
 // perform the conversion.
-func Convert(inMediaType, outMediaType string, in []byte, out io.Writer) error {
+func Convert(inMediaType, outMediaType string, in []byte, out io.Writer) (*runtime.TypeMeta, error) {
 	if inMediaType == StorageBinaryMediaType && outMediaType == ProtobufMediaType {
-		return DecodeRaw(in, out)
+		return nil, DecodeRaw(in, out)
 	}
 
 	if inMediaType == ProtobufMediaType && outMediaType == StorageBinaryMediaType {
-		return fmt.Errorf("unsupported conversion: protobuf to kubernetes binary storage representation")
+		return nil, fmt.Errorf("unsupported conversion: protobuf to kubernetes binary storage representation")
 	}
 
 	typeMeta, err := decodeTypeMeta(inMediaType, in)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	inCodec, err := newCodec(typeMeta, inMediaType)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	outCodec, err := newCodec(typeMeta, outMediaType)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	obj, err := runtime.Decode(inCodec, in)
 	if err != nil {
-		return fmt.Errorf("error decoding from %s: %s", inMediaType, err)
+		return nil, fmt.Errorf("error decoding from %s: %s", inMediaType, err)
 	}
 
 	encoded, err := runtime.Encode(outCodec, obj)
 	if err != nil {
-		return fmt.Errorf("error encoding to %s: %s", outMediaType, err)
+		return nil, fmt.Errorf("error encoding to %s: %s", outMediaType, err)
 	}
 
 	_, err = out.Write(encoded)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return typeMeta, nil
 }
 
 // DetectAndExtract searches the the start of either json of protobuf data, and, if found, returns the mime type and data.

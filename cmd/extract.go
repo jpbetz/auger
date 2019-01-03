@@ -18,17 +18,21 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	"text/template"
 
 	bolt "github.com/coreos/bbolt"
 	"github.com/coreos/etcd/mvcc/mvccpb"
 	"github.com/kubernetes-incubator/auger/pkg/encoding"
 	"github.com/spf13/cobra"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 var (
@@ -48,6 +52,9 @@ for the '.db' file lock.`
 
         # List the keys and size of all entries in etcd
         auger extract -f <boltdb-file> --fields=key,value-size
+
+        # Extract a specific field from each kubernetes object
+        auger extract -f <boltdb-file> --template="{{.Value.metadata.creationTimestamp}}"
 
         # Extract the etcd value stored in page 10, item 0 of a boltdb file:
         bolt page --item 0 --value-only <boltdb-file> 10 | auger extract --leaf-item
@@ -79,6 +86,7 @@ type extractOptions struct {
 	metaSummary  bool
 	raw          bool
 	fields       string
+	template     string
 }
 
 var opts *extractOptions = &extractOptions{}
@@ -96,6 +104,7 @@ func init() {
 	extractCmd.Flags().BoolVar(&opts.metaSummary, "meta-summary", false, "Print a summary of the metadata of the matching entry")
 	extractCmd.Flags().BoolVar(&opts.raw, "raw", false, "Don't attempt to decode the etcd value")
 	extractCmd.Flags().StringVar(&opts.fields, "fields", Key, fmt.Sprintf("Fields to include when listing entries, comma separated list of: %v", SummaryFields))
+	extractCmd.Flags().StringVar(&opts.template, "template", "", fmt.Sprintf("golang template to use when listing entries, see https://golang.org/pkg/text/template, template is provided an object with the fields: %v. The Value field contains the entire kubernetes resource object which also may be dereferenced using a dot seperated path.", templateFields()))
 }
 
 const (
@@ -107,6 +116,15 @@ const (
 )
 
 var SummaryFields = []string{Key, ValueSize, AllVersionsValueSize, VersionCount, Value}
+
+func templateFields() string {
+	t := reflect.ValueOf(KeySummary{}).Type()
+	names := []string{}
+	for i := 0; i < t.NumField(); i++ {
+		names = append(names, t.Field(i).Name)
+	}
+	return strings.Join(names, ", ")
+}
 
 // See etcd/mvcc/kvstore.go:keyBucketName
 var keyBucket = []byte("key")
@@ -120,6 +138,8 @@ func extractValidateAndRun() error {
 	hasKey := opts.key != ""
 	hasVersion := opts.version != ""
 	hasKeyPrefix := opts.keyPrefix != ""
+	hasFields := opts.fields != Key
+	hasTemplate := opts.template != ""
 
 	switch {
 	case opts.leafItem:
@@ -148,6 +168,10 @@ func extractValidateAndRun() error {
 		return fmt.Errorf("--list-versions may only be used with --key")
 	case !hasKey && hasVersion:
 		return fmt.Errorf("--version may only be used with --key")
+	case hasTemplate && hasFields:
+		return fmt.Errorf("--template and --fields may not be used together")
+	case hasTemplate:
+		return templateSummaries(opts.filename, opts.keyPrefix, opts.template, out)
 	default:
 		fields := strings.Split(opts.fields, ",")
 		return printKeySummaries(opts.filename, opts.keyPrefix, fields, out)
@@ -197,7 +221,8 @@ func printValue(filename string, key string, version string, raw bool, outMediaT
 		fmt.Fprintf(out, "%s\n", string(in))
 		return nil
 	}
-	return convert(outMediaType, in, out)
+	_, err = convert(outMediaType, in, out)
+	return err
 }
 
 // printLeafItemKey prints an etcd key for a given boltdb leaf item.
@@ -218,7 +243,8 @@ func printLeafItemSummary(kv *mvccpb.KeyValue, out io.Writer) error {
 
 // printLeafItemValue prints an etcd value for a given boltdb leaf item.
 func printLeafItemValue(kv *mvccpb.KeyValue, outMediaType string, out io.Writer) error {
-	return convert(outMediaType, kv.Value, out)
+	_, err := convert(outMediaType, kv.Value, out)
+	return err
 }
 
 // printKeySummaries prints all keys in the db file with the given key prefix.
@@ -241,39 +267,70 @@ func printKeySummaries(filename string, keyPrefix string, fields []string, out i
 	return nil
 }
 
-func convert(outMediaType string, in []byte, out io.Writer) error {
-	inMediaType, in, err := encoding.DetectAndExtract(in)
+// templateSummaries prints out each KeySummary according to the given golang template.
+// See https://golang.org/pkg/text/template for details on the template format.
+func templateSummaries(filename string, keyPrefix string, templatestr string, out io.Writer) error {
+	t, err := template.New("template").Parse(templatestr)
 	if err != nil {
 		return err
+	}
+
+	if len(templatestr) == 0 {
+		return fmt.Errorf("no template provided, nothing to output.")
+	}
+
+	summaries, err := listKeySummaries(filename, keyPrefix)
+	if err != nil {
+		return err
+	}
+	for _, s := range summaries {
+		err := t.Execute(out, s)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "\n")
+	}
+	return nil
+}
+
+func convert(outMediaType string, in []byte, out io.Writer) (*runtime.TypeMeta, error) {
+	inMediaType, in, err := encoding.DetectAndExtract(in)
+	if err != nil {
+		return nil, err
 	}
 	return encoding.Convert(inMediaType, outMediaType, in, out)
 }
 
-type keySummary struct {
-	key                  string
-	version              int64
-	versionCount         int
-	keySize              int
-	valueSize            int
-	allVersionsKeySize   int
-	allVersionsValueSize int
-	value                string
+type KeySummary struct {
+	Key      string
+	Version  int64
+	Value    interface{}
+	TypeMeta *runtime.TypeMeta
+	Stats    *KeySummaryStats
 }
 
-func (s *keySummary) summarize(fields []string) (string, error) {
+type KeySummaryStats struct {
+	VersionCount         int
+	KeySize              int
+	ValueSize            int
+	AllVersionsKeySize   int
+	AllVersionsValueSize int
+}
+
+func (s *KeySummary) summarize(fields []string) (string, error) {
 	values := make([]string, len(fields))
 	for i, field := range fields {
 		switch field {
 		case Key:
-			values[i] = fmt.Sprintf("%s", s.key)
+			values[i] = fmt.Sprintf("%s", s.Key)
 		case ValueSize:
-			values[i] = fmt.Sprintf("%d", s.valueSize)
+			values[i] = fmt.Sprintf("%d", s.Stats.ValueSize)
 		case AllVersionsValueSize:
-			values[i] = fmt.Sprintf("%d", s.allVersionsValueSize)
+			values[i] = fmt.Sprintf("%d", s.Stats.AllVersionsValueSize)
 		case VersionCount:
-			values[i] = fmt.Sprintf("%d", s.versionCount)
+			values[i] = fmt.Sprintf("%d", s.Stats.VersionCount)
 		case Value:
-			values[i] = fmt.Sprintf("%s", s.value)
+			values[i] = fmt.Sprintf("%s", rawJsonMarshal(s.Value))
 		default:
 			return "", fmt.Errorf("unrecognized field: %s", field)
 		}
@@ -281,37 +338,42 @@ func (s *keySummary) summarize(fields []string) (string, error) {
 	return strings.Join(values, " "), nil
 }
 
-func listKeySummaries(filename string, prefix string) ([]*keySummary, error) {
+func listKeySummaries(filename string, prefix string) ([]*KeySummary, error) {
 	prefixBytes := []byte(prefix)
-	m := make(map[string]*keySummary)
+	m := make(map[string]*KeySummary)
 	err := walk(filename, func(kv *mvccpb.KeyValue) (bool, error) {
 		if bytes.HasPrefix(kv.Key, prefixBytes) {
 			ks, ok := m[string(kv.Key)]
 			if !ok {
 				buf := new(bytes.Buffer)
-				var val string
-				if err := convert(encoding.JsonMediaType, kv.Value, buf); err == nil {
-					val = strings.TrimSpace(buf.String())
+				var valJson string
+				var typeMeta *runtime.TypeMeta
+				var err error
+				if typeMeta, err = convert(encoding.JsonMediaType, kv.Value, buf); err == nil {
+					valJson = strings.TrimSpace(buf.String())
 				}
-				ks = &keySummary{
-					key:                  string(kv.Key),
-					version:              kv.Version,
-					keySize:              len(kv.Key),
-					valueSize:            len(kv.Value),
-					allVersionsKeySize:   len(kv.Key),
-					allVersionsValueSize: len(kv.Value),
-					versionCount:         1,
-					value:                val,
+				ks = &KeySummary{
+					Key:     string(kv.Key),
+					Version: kv.Version,
+					Stats: &KeySummaryStats{
+						KeySize:              len(kv.Key),
+						ValueSize:            len(kv.Value),
+						AllVersionsKeySize:   len(kv.Key),
+						AllVersionsValueSize: len(kv.Value),
+						VersionCount:         1,
+					},
+					Value:    rawJsonUnmarshal(valJson),
+					TypeMeta: typeMeta,
 				}
 				m[string(kv.Key)] = ks
 			} else {
-				if kv.Version > ks.version {
-					ks.version = kv.Version
-					ks.valueSize = len(kv.Value)
+				if kv.Version > ks.Version {
+					ks.Version = kv.Version
+					ks.Stats.ValueSize = len(kv.Value)
 				}
-				ks.versionCount += 1
-				ks.allVersionsKeySize += len(kv.Key)
-				ks.allVersionsValueSize += len(kv.Value)
+				ks.Stats.VersionCount += 1
+				ks.Stats.AllVersionsKeySize += len(kv.Key)
+				ks.Stats.AllVersionsValueSize += len(kv.Value)
 			}
 
 		}
@@ -403,15 +465,15 @@ func extractKvFromLeafItem(raw []byte) (*mvccpb.KeyValue, error) {
 	return kv, nil
 }
 
-func getSortedKeySummaries(m map[string]*keySummary) []*keySummary {
-	result := make([]*keySummary, len(m))
+func getSortedKeySummaries(m map[string]*KeySummary) []*KeySummary {
+	result := make([]*KeySummary, len(m))
 	i := 0
 	for _, v := range m {
 		result[i] = v
 		i++
 	}
 	sort.Slice(result, func(i, j int) bool {
-		return strings.Compare(result[i].key, result[j].key) <= 0
+		return strings.Compare(result[i].Key, result[j].Key) <= 0
 	})
 
 	return result
@@ -425,4 +487,20 @@ func maxInSlice(s []int64) int64 {
 		}
 	}
 	return r
+}
+
+func rawJsonMarshal(data interface{}) string {
+	b, err := json.Marshal(data)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func rawJsonUnmarshal(valJson string) map[string]interface{} {
+	val := map[string]interface{}{}
+	if err := json.Unmarshal([]byte(valJson), &val); err != nil {
+		val = nil
+	}
+	return val
 }

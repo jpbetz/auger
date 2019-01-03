@@ -80,5 +80,6 @@ func encodeValidateAndRun() error {
 
 // encodeRun runs the encode command.
 func encodeRun(inMediaType string, in []byte, out io.Writer) error {
-	return encoding.Convert(inMediaType, encoding.StorageBinaryMediaType, in, out)
+	_, err := encoding.Convert(inMediaType, encoding.StorageBinaryMediaType, in, out)
+	return err
 }

@@ -23,10 +23,11 @@ import (
 	"os"
 
 	"bufio"
+	"bytes"
 	"encoding/hex"
+
 	"github.com/kubernetes-incubator/auger/pkg/encoding"
 	"github.com/spf13/cobra"
-	"bytes"
 )
 
 var (
@@ -151,7 +152,7 @@ func runInBatchMode(metaOnly bool, outMediaType string, out io.Writer) (err erro
 		}
 
 		buf := bytes.NewBufferString("")
-		err = encoding.Convert(inMediaType, outMediaType, decodedinput, buf)
+		_, err = encoding.Convert(inMediaType, outMediaType, decodedinput, buf)
 		if err != nil {
 			fmt.Fprintf(out, "ERROR:%v|\n", err)
 		} else {
@@ -160,7 +161,6 @@ func runInBatchMode(metaOnly bool, outMediaType string, out io.Writer) (err erro
 
 		lineNum++
 	}
-	return nil
 }
 
 // Run the decode command line.
@@ -174,7 +174,8 @@ func run(metaOnly bool, outMediaType string, in []byte, out io.Writer) error {
 		return encoding.DecodeSummary(inMediaType, in, out)
 	}
 
-	return encoding.Convert(inMediaType, outMediaType, in, out)
+	_, err = encoding.Convert(inMediaType, outMediaType, in, out)
+	return err
 }
 
 // Readinput reads command line input, either from a provided input file or from stdin.
