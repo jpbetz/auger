@@ -17,7 +17,7 @@ import:
 - package: github.com/spf13/pflag
   version: v1.0.0
 - package: github.com/coreos/etcd
-  version: v3.1.11
+  version: v3.3.10
 - package: github.com/coreos/bbolt
   version: v1.3.1-coreos.3
 - package: github.com/golang/glog
@@ -25,8 +25,8 @@ import:
 - package: github.com/spf13/cobra
   version: v0.0.1
 - package: k8s.io/api
-  version: kubernetes-1.12.1
+  version: kubernetes-1.13.1
 - package: k8s.io/apimachinery
-  version: kubernetes-1.12.1
+  version: kubernetes-1.13.1
 - package: k8s.io/apiserver
-  version: kubernetes-1.12.1
+  version: kubernetes-1.13.1
