@@ -1,5 +1,5 @@
 NAME?=auger
-PKG?=github.com/kubernetes-incubator/$(NAME)
+PKG?=github.com/jpbetz/$(NAME)
 GO_VERSION?=1.8.3
 ARCH?=amd64
 TEMP_DIR:=$(shell mktemp -d)
