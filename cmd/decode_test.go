@@ -75,10 +75,10 @@ func assertMatchesFile(t *testing.T, out *bytes.Buffer, filename string) {
 ==== BEGIN RECIEVED FILE ====
 %s
 ====END RECIEVED FILE ====
-====BEGIN EXPECTED FILE ====
+====BEGIN EXPECTED FILE (%s) ====
 %s
 ==== END EXPECTED FILE ====
-`, len(b), len(expected), b, expected)
+`, len(b), len(expected), b, filename, expected)
 	}
 }
 

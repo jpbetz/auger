@@ -72,23 +72,33 @@ func Convert(inMediaType, outMediaType string, in []byte, out io.Writer) (*runti
 	if err != nil {
 		return nil, err
 	}
-	inCodec, err := newCodec(typeMeta, inMediaType)
-	if err != nil {
-		return nil, err
-	}
-	outCodec, err := newCodec(typeMeta, outMediaType)
-	if err != nil {
-		return nil, err
-	}
 
-	obj, err := runtime.Decode(inCodec, in)
-	if err != nil {
-		return nil, fmt.Errorf("error decoding from %s: %s", inMediaType, err)
-	}
+	var encoded []byte
+	if inMediaType == outMediaType {
+		// Assumes that the stored version is "correct". Primarily a short cut to allow CRDs to work.
+		encoded = in
+		if outMediaType == JsonMediaType {
+			encoded = append(encoded, '\n')
+		}
+	} else {
+		inCodec, err := newCodec(typeMeta, inMediaType)
+		if err != nil {
+			return nil, err
+		}
+		outCodec, err := newCodec(typeMeta, outMediaType)
+		if err != nil {
+			return nil, err
+		}
 
-	encoded, err := runtime.Encode(outCodec, obj)
-	if err != nil {
-		return nil, fmt.Errorf("error encoding to %s: %s", outMediaType, err)
+		obj, err := runtime.Decode(inCodec, in)
+		if err != nil {
+			return nil, fmt.Errorf("error decoding from %s: %s", inMediaType, err)
+		}
+
+		encoded, err = runtime.Encode(outCodec, obj)
+		if err != nil {
+			return nil, fmt.Errorf("error encoding to %s: %s", outMediaType, err)
+		}
 	}
 
 	_, err = out.Write(encoded)
