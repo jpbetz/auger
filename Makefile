@@ -1,7 +1,8 @@
 NAME?=auger
 PKG?=github.com/jpbetz/$(NAME)
 GO_VERSION?=1.8.3
-ARCH?=amd64
+GOOS?=linux
+GOARCH?=amd64
 TEMP_DIR:=$(shell mktemp -d)
 
 # Local development glide install
@@ -11,7 +12,7 @@ vendor:
 # Local development build
 build: vendor
 	@mkdir -p build
-	ARCH=$(ARCH) go build -o build/$(NAME)
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o build/$(NAME)
 	@echo build/$(NAME) built!
 
 # Local development test
@@ -30,7 +31,7 @@ release:
 		-v $(TEMP_DIR)/$(NAME):/go/src/$(PKG) \
 		-w /go/src/$(PKG) \
 		golang:$(GO_VERSION) \
-		/bin/bash -c "make -f /go/src/$(PKG)/Makefile release-docker-build"
+		/bin/bash -c "make -f /go/src/$(PKG)/Makefile release-docker-build GOARCH=$(GOARCH) GOOS=$(GOOS)"
 	@mkdir -p build
 	@cp $(TEMP_DIR)/$(NAME)/$(NAME) build/$(NAME)
 	@echo build/$(NAME) built!
@@ -40,7 +41,7 @@ release-docker-build:
 	export GOPATH=/go
 	curl https://glide.sh/get | sh
 	glide install --strip-vendor
-	GOARCH=$(ARCH) go build
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build
 
 clean:
 	rm -rf vendor
