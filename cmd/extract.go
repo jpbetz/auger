@@ -17,22 +17,18 @@ limitations under the License.
 package cmd
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"reflect"
-	"sort"
 	"strconv"
 	"strings"
 	"text/template"
 
-	bolt "github.com/coreos/bbolt"
 	"github.com/coreos/etcd/mvcc/mvccpb"
+	"github.com/jpbetz/auger/pkg/data"
 	"github.com/jpbetz/auger/pkg/encoding"
 	"github.com/spf13/cobra"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 var (
@@ -55,6 +51,9 @@ for the '.db' file lock.`
 
         # Extract a specific field from each kubernetes object
         auger extract -f <boltdb-file> --template="{{.Value.metadata.creationTimestamp}}"
+
+        # Extract kubernetes objects using a filter
+        auger extract -f <boltdb-file> --filter=".Value.metadata.namespace=kube-system"
 
         # Extract the etcd value stored in page 10, item 0 of a boltdb file:
         bolt page --item 0 --value-only <boltdb-file> 10 | auger extract --leaf-item
@@ -87,6 +86,7 @@ type extractOptions struct {
 	raw          bool
 	fields       string
 	template     string
+	filter       string
 }
 
 var opts *extractOptions = &extractOptions{}
@@ -105,6 +105,7 @@ func init() {
 	extractCmd.Flags().BoolVar(&opts.raw, "raw", false, "Don't attempt to decode the etcd value")
 	extractCmd.Flags().StringVar(&opts.fields, "fields", Key, fmt.Sprintf("Fields to include when listing entries, comma separated list of: %v", SummaryFields))
 	extractCmd.Flags().StringVar(&opts.template, "template", "", fmt.Sprintf("golang template to use when listing entries, see https://golang.org/pkg/text/template, template is provided an object with the fields: %v. The Value field contains the entire kubernetes resource object which also may be dereferenced using a dot seperated path.", templateFields()))
+	extractCmd.Flags().StringVar(&opts.filter, "filter", "", fmt.Sprintf("Filter entries using a comma separated list of '<field>=value' constraints. Fields used in filters use the same naming as --template fields, e.g. .Value.metadata.namespace"))
 }
 
 const (
@@ -118,16 +119,13 @@ const (
 var SummaryFields = []string{Key, ValueSize, AllVersionsValueSize, VersionCount, Value}
 
 func templateFields() string {
-	t := reflect.ValueOf(KeySummary{}).Type()
+	t := reflect.ValueOf(data.KeySummary{}).Type()
 	names := []string{}
 	for i := 0; i < t.NumField(); i++ {
 		names = append(names, t.Field(i).Name)
 	}
 	return strings.Join(names, ", ")
 }
-
-// See etcd/mvcc/kvstore.go:keyBucketName
-var keyBucket = []byte("key")
 
 func extractValidateAndRun() error {
 	outMediaType, err := encoding.ToMediaType(opts.out)
@@ -171,7 +169,7 @@ func extractValidateAndRun() error {
 	case hasTemplate && hasFields:
 		return fmt.Errorf("--template and --fields may not be used together")
 	case hasTemplate:
-		return templateSummaries(opts.filename, opts.keyPrefix, opts.template, out)
+		return printTemplateSummaries(opts.filename, opts.keyPrefix, opts.template, opts.filter, out)
 	default:
 		fields := strings.Split(opts.fields, ",")
 		return printKeySummaries(opts.filename, opts.keyPrefix, fields, out)
@@ -180,7 +178,7 @@ func extractValidateAndRun() error {
 
 // printVersions writes all versions of the given key.
 func printVersions(filename string, key string, out io.Writer) error {
-	versions, err := listVersions(filename, key)
+	versions, err := data.ListVersions(filename, key)
 	if err != nil {
 		return err
 	}
@@ -195,7 +193,7 @@ func printValue(filename string, key string, version string, raw bool, outMediaT
 	var v int64
 	var err error
 	if version == "" {
-		versions, err := listVersions(filename, key)
+		versions, err := data.ListVersions(filename, key)
 		if err != nil {
 			return err
 		}
@@ -210,7 +208,7 @@ func printValue(filename string, key string, version string, raw bool, outMediaT
 			return fmt.Errorf("version must be an int64, but got %s: %s", version, err)
 		}
 	}
-	in, err := getValue(filename, key, v)
+	in, err := data.GetValue(filename, key, v)
 	if err != nil {
 		return err
 	}
@@ -221,7 +219,7 @@ func printValue(filename string, key string, version string, raw bool, outMediaT
 		fmt.Fprintf(out, "%s\n", string(in))
 		return nil
 	}
-	_, err = convert(outMediaType, in, out)
+	_, err = encoding.DetectAndConvert(outMediaType, in, out)
 	return err
 }
 
@@ -243,7 +241,7 @@ func printLeafItemSummary(kv *mvccpb.KeyValue, out io.Writer) error {
 
 // printLeafItemValue prints an etcd value for a given boltdb leaf item.
 func printLeafItemValue(kv *mvccpb.KeyValue, outMediaType string, out io.Writer) error {
-	_, err := convert(outMediaType, kv.Value, out)
+	_, err := encoding.DetectAndConvert(outMediaType, kv.Value, out)
 	return err
 }
 
@@ -253,12 +251,23 @@ func printKeySummaries(filename string, keyPrefix string, fields []string, out i
 		return fmt.Errorf("no fields provided, nothing to output.")
 	}
 
-	summaries, err := listKeySummaries(filename, keyPrefix)
+	var hasKey bool
+	var hasValue bool
+	for _, field := range fields {
+		switch field {
+		case Key:
+			hasKey = true
+		case Value:
+			hasValue = true
+		}
+	}
+	proj := &data.KeySummaryProjection{HasKey: hasKey, HasValue: hasValue}
+	summaries, err := data.ListKeySummaries(filename, []data.Filter{data.NewPrefixFilter(keyPrefix)}, proj)
 	if err != nil {
 		return err
 	}
 	for _, s := range summaries {
-		summary, err := s.summarize(fields)
+		summary, err := summarize(s, fields)
 		if err != nil {
 			return err
 		}
@@ -267,9 +276,10 @@ func printKeySummaries(filename string, keyPrefix string, fields []string, out i
 	return nil
 }
 
-// templateSummaries prints out each KeySummary according to the given golang template.
+// printTemplateSummaries prints out each KeySummary according to the given golang template.
 // See https://golang.org/pkg/text/template for details on the template format.
-func templateSummaries(filename string, keyPrefix string, templatestr string, out io.Writer) error {
+func printTemplateSummaries(filename string, keyPrefix string, templatestr string, filterstr string, out io.Writer) error {
+	var err error
 	t, err := template.New("template").Parse(templatestr)
 	if err != nil {
 		return err
@@ -279,7 +289,16 @@ func templateSummaries(filename string, keyPrefix string, templatestr string, ou
 		return fmt.Errorf("no template provided, nothing to output.")
 	}
 
-	summaries, err := listKeySummaries(filename, keyPrefix)
+	filters := []data.Filter{}
+	if filterstr != "" {
+		filters, err = data.ParseFilters(filterstr)
+		if err != nil {
+			return err
+		}
+	}
+
+	// We don't have a simple way to determine if the template uses the key or value or not
+	summaries, err := data.ListKeySummaries(filename, append(filters, data.NewPrefixFilter(keyPrefix)), &data.KeySummaryProjection{HasKey: true, HasValue: true})
 	if err != nil {
 		return err
 	}
@@ -293,31 +312,7 @@ func templateSummaries(filename string, keyPrefix string, templatestr string, ou
 	return nil
 }
 
-func convert(outMediaType string, in []byte, out io.Writer) (*runtime.TypeMeta, error) {
-	inMediaType, in, err := encoding.DetectAndExtract(in)
-	if err != nil {
-		return nil, err
-	}
-	return encoding.Convert(inMediaType, outMediaType, in, out)
-}
-
-type KeySummary struct {
-	Key      string
-	Version  int64
-	Value    interface{}
-	TypeMeta *runtime.TypeMeta
-	Stats    *KeySummaryStats
-}
-
-type KeySummaryStats struct {
-	VersionCount         int
-	KeySize              int
-	ValueSize            int
-	AllVersionsKeySize   int
-	AllVersionsValueSize int
-}
-
-func (s *KeySummary) summarize(fields []string) (string, error) {
+func summarize(s *data.KeySummary, fields []string) (string, error) {
 	values := make([]string, len(fields))
 	for i, field := range fields {
 		switch field {
@@ -330,130 +325,12 @@ func (s *KeySummary) summarize(fields []string) (string, error) {
 		case VersionCount:
 			values[i] = fmt.Sprintf("%d", s.Stats.VersionCount)
 		case Value:
-			values[i] = fmt.Sprintf("%s", rawJsonMarshal(s.Value))
+			values[i] = fmt.Sprintf("%s", s.ValueJson())
 		default:
 			return "", fmt.Errorf("unrecognized field: %s", field)
 		}
 	}
 	return strings.Join(values, " "), nil
-}
-
-func listKeySummaries(filename string, prefix string) ([]*KeySummary, error) {
-	prefixBytes := []byte(prefix)
-	m := make(map[string]*KeySummary)
-	err := walk(filename, func(kv *mvccpb.KeyValue) (bool, error) {
-		if bytes.HasPrefix(kv.Key, prefixBytes) {
-			ks, ok := m[string(kv.Key)]
-			if !ok {
-				buf := new(bytes.Buffer)
-				var valJson string
-				var typeMeta *runtime.TypeMeta
-				var err error
-				if typeMeta, err = convert(encoding.JsonMediaType, kv.Value, buf); err == nil {
-					valJson = strings.TrimSpace(buf.String())
-				}
-				ks = &KeySummary{
-					Key:     string(kv.Key),
-					Version: kv.Version,
-					Stats: &KeySummaryStats{
-						KeySize:              len(kv.Key),
-						ValueSize:            len(kv.Value),
-						AllVersionsKeySize:   len(kv.Key),
-						AllVersionsValueSize: len(kv.Value),
-						VersionCount:         1,
-					},
-					Value:    rawJsonUnmarshal(valJson),
-					TypeMeta: typeMeta,
-				}
-				m[string(kv.Key)] = ks
-			} else {
-				if kv.Version > ks.Version {
-					ks.Version = kv.Version
-					ks.Stats.ValueSize = len(kv.Value)
-				}
-				ks.Stats.VersionCount += 1
-				ks.Stats.AllVersionsKeySize += len(kv.Key)
-				ks.Stats.AllVersionsValueSize += len(kv.Value)
-			}
-
-		}
-		return false, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	result := getSortedKeySummaries(m)
-	return result, nil
-}
-
-func listVersions(filename string, key string) ([]int64, error) {
-	var result []int64
-
-	err := walk(filename, func(kv *mvccpb.KeyValue) (bool, error) {
-		if string(kv.Key) == key {
-			result = append(result, kv.Version)
-		}
-		return false, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-// getValue scans the bucket of the bolt db file for a etcd v3 record with the given key and returns the value.
-// Because bolt db files are indexed by revision
-func getValue(filename string, key string, version int64) ([]byte, error) {
-	var result []byte
-	found := false
-	err := walk(filename, func(kv *mvccpb.KeyValue) (bool, error) {
-		if string(kv.Key) == key && kv.Version == version {
-			result = kv.Value
-			found = true
-			return true, nil
-		}
-		return false, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		return nil, fmt.Errorf("key not found: %s", key)
-	}
-	return result, nil
-}
-
-func walk(filename string, f func(kv *mvccpb.KeyValue) (bool, error)) error {
-	db, err := bolt.Open(filename, 0400, &bolt.Options{})
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	err = db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(keyBucket)
-		c := b.Cursor()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			kv := &mvccpb.KeyValue{}
-			err = kv.Unmarshal(v)
-			if err != nil {
-				return err
-			}
-			done, err := f(kv)
-			if err != nil {
-				return fmt.Errorf("Error handling key %s", kv.Key)
-			}
-			if done {
-				break
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 func extractKvFromLeafItem(raw []byte) (*mvccpb.KeyValue, error) {
@@ -465,20 +342,6 @@ func extractKvFromLeafItem(raw []byte) (*mvccpb.KeyValue, error) {
 	return kv, nil
 }
 
-func getSortedKeySummaries(m map[string]*KeySummary) []*KeySummary {
-	result := make([]*KeySummary, len(m))
-	i := 0
-	for _, v := range m {
-		result[i] = v
-		i++
-	}
-	sort.Slice(result, func(i, j int) bool {
-		return strings.Compare(result[i].Key, result[j].Key) <= 0
-	})
-
-	return result
-}
-
 func maxInSlice(s []int64) int64 {
 	r := int64(0)
 	for _, e := range s {
@@ -487,20 +350,4 @@ func maxInSlice(s []int64) int64 {
 		}
 	}
 	return r
-}
-
-func rawJsonMarshal(data interface{}) string {
-	b, err := json.Marshal(data)
-	if err != nil {
-		return ""
-	}
-	return string(b)
-}
-
-func rawJsonUnmarshal(valJson string) map[string]interface{} {
-	val := map[string]interface{}{}
-	if err := json.Unmarshal([]byte(valJson), &val); err != nil {
-		val = nil
-	}
-	return val
 }

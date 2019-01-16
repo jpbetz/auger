@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/jpbetz/auger/pkg/data"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +28,7 @@ func init() {
 }
 
 func analyzeValidateAndRun() error {
-	summaries, err := listKeySummaries(analyzeOpts.filename, "")
+	summaries, err := data.ListKeySummaries(analyzeOpts.filename, []data.Filter{}, &data.KeySummaryProjection{HasKey: true, HasValue: false})
 	if err != nil {
 		return err
 	}

@@ -57,6 +57,17 @@ func ToMediaType(out string) (string, error) {
 	}
 }
 
+// DetectAndConvert first detects the media type of the in param data and then converts it from
+// the kv store encoded data to the given output format using kubernetes' api machinery to
+// perform the conversion.
+func DetectAndConvert(outMediaType string, in []byte, out io.Writer) (*runtime.TypeMeta, error) {
+	inMediaType, in, err := DetectAndExtract(in)
+	if err != nil {
+		return nil, err
+	}
+	return Convert(inMediaType, outMediaType, in, out)
+}
+
 // Convert from kv store encoded data to the given output format using kubernetes' api machinery to
 // perform the conversion.
 func Convert(inMediaType, outMediaType string, in []byte, out io.Writer) (*runtime.TypeMeta, error) {

@@ -88,11 +88,19 @@ auger extract -f <boltdb-file> -k /registry/pods/default/<pod-name>
 > ...
 ```
 
+Query for specific data directly from a db file:
+
+``` sh
+auger extract -f <boltdb-file> --template="{{.Value.kind}} {{.Value.metadata.name}}" --filter=".Value.metadata.namespace=default"
+> Endpoints kubernetes
+> Service kubernetes
+> ...
+```
+
 TODO
 ----
 
 - [ ] Warn if attempting to read data written by a different version of kubernetes
 - [ ] Add detection of unrecognized fields in stored data, which would suggest
       data was written with newer version of proto schema
-- [ ] Enable travis CI
 - [ ] Build and publish releases for all recent kubernetes versions (1.6+)
