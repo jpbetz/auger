@@ -21,34 +21,60 @@ import (
 )
 
 const (
-	dbFile = "testdata/boltdb/db"
+	dbFile        = "testdata/boltdb/db"
+	dbWithCrdFile = "testdata/boltdb/db-with-crd"
 )
 
 func TestListKeySummariesFilters(t *testing.T) {
 	cases := []struct {
+		file         string
 		name         string
 		filters      []Filter
 		expectedKeys []string
 	}{
 		{
+			file:         dbFile,
 			name:         "nofilters",
 			filters:      []Filter{},
 			expectedKeys: []string{"/registry/jobs/default/pi", "/registry/namespaces/default", "/registry/pods/default/pi-dqtsw", "compact_rev_key"},
 		},
 		{
+			file:         dbFile,
 			name:         "prefixfilter",
 			filters:      []Filter{NewPrefixFilter("/registry/jobs")},
 			expectedKeys: []string{"/registry/jobs/default/pi"},
 		},
 		{
+			file:         dbFile,
 			name:         "namespacefilter",
 			filters:      []Filter{mustBuildFilter(&FieldConstraint{lhs: ".Value.metadata.namespace", op: Equals, rhs: "default"})},
 			expectedKeys: []string{"/registry/jobs/default/pi", "/registry/pods/default/pi-dqtsw"},
 		},
 		{
+			file:         dbFile,
 			name:         "allfilters",
 			filters:      []Filter{NewPrefixFilter("/registry/jobs"), mustBuildFilter(&FieldConstraint{lhs: ".Value.metadata.namespace", op: Equals, rhs: "default"})},
 			expectedKeys: []string{"/registry/jobs/default/pi"},
+		},
+		{
+			file: dbWithCrdFile,
+			name: "crd",
+			filters: []Filter{
+				NewPrefixFilter("/registry/apiextensions.k8s.io/customresourcedefinitions"),
+				mustBuildFilter(&FieldConstraint{lhs: ".TypeMeta.APIVersion", op: Equals, rhs: "apiextensions.k8s.io/v1beta1"}),
+				mustBuildFilter(&FieldConstraint{lhs: ".TypeMeta.Kind", op: Equals, rhs: "CustomResourceDefinition"}),
+			},
+			expectedKeys: []string{"/registry/apiextensions.k8s.io/customresourcedefinitions/crontabs.stable.example.com"},
+		},
+		{
+			file: dbWithCrdFile,
+			name: "cr",
+			filters: []Filter{
+				NewPrefixFilter("/registry/stable.example.com/crontabs"),
+				mustBuildFilter(&FieldConstraint{lhs: ".TypeMeta.APIVersion", op: Equals, rhs: "stable.example.com/v1"}),
+				mustBuildFilter(&FieldConstraint{lhs: ".TypeMeta.Kind", op: Equals, rhs: "CronTab"}),
+			},
+			expectedKeys: []string{"/registry/stable.example.com/crontabs/default/my-new-cron-object"},
 		},
 	}
 	for _, tt := range cases {
@@ -58,7 +84,7 @@ func TestListKeySummariesFilters(t *testing.T) {
 				missingKeys[key] = struct{}{}
 			}
 			unexpectedKeys := map[string]struct{}{}
-			results, err := ListKeySummaries(dbFile, tt.filters, ProjectEverything)
+			results, err := ListKeySummaries(tt.file, tt.filters, ProjectEverything)
 			if err != nil {
 				t.Fatal(err)
 			}
