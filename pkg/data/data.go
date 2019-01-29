@@ -164,7 +164,9 @@ func ListKeySummaries(filename string, filters []Filter, proj *KeySummaryProject
 				if proj.HasKey {
 					key = string(kv.Key)
 				}
-				if proj.HasValue {
+				// If the caller or filters need the value, we need to deserialize it.
+				// For filters we don't yet know if they need it, so if there are any filters we must include it.
+				if proj.HasValue || len(filters) > 0 {
 					value = rawJsonUnmarshal(valJson)
 				}
 				ks = &KeySummary{
