@@ -31,7 +31,7 @@ const (
 
 func TestListKeys(t *testing.T) {
 	out := new(bytes.Buffer)
-	if err := printKeySummaries(dbFile, "", []string{"key"}, out); err != nil {
+	if err := printKeySummaries(dbFile, "", 0, []string{"key"}, out); err != nil {
 		t.Fatal(err)
 	}
 	assertMatchesFile(t, out, "testdata/boltdb/keys.txt")
@@ -39,7 +39,7 @@ func TestListKeys(t *testing.T) {
 
 func TestListKeySummaries(t *testing.T) {
 	out := new(bytes.Buffer)
-	if err := printKeySummaries(dbWithHistoryFile, "", []string{"key", "version-count", "value-size", "all-versions-value-size"}, out); err != nil {
+	if err := printKeySummaries(dbWithHistoryFile, "", 0, []string{"key", "version-count", "value-size", "all-versions-value-size"}, out); err != nil {
 		t.Fatal(err)
 	}
 	assertMatchesFile(t, out, "testdata/boltdb/keys-with-history.txt")

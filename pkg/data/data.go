@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"sort"
 	"strings"
 	"text/template"
@@ -31,7 +32,14 @@ import (
 )
 
 // See etcd/mvcc/kvstore.go:keyBucketName
-var keyBucket = []byte("key")
+var (
+	keyBucket  = []byte("key")
+	metaBucket = []byte("meta")
+
+	consistentIndexKeyName  = []byte("consistent_index")
+	scheduledCompactKeyName = []byte("scheduledCompactRev")
+	finishedCompactKeyName  = []byte("finishedCompactRev")
+)
 
 // KeySummary represents a kubernetes object stored in etcd.
 type KeySummary struct {
@@ -136,12 +144,66 @@ func (ff *FieldFilter) Accept(ks *KeySummary) (bool, error) {
 	}
 }
 
+// HashByRevision returns the checksum and revision that was checksumed of a etcd keyspace.
+// If revision is 0, the latest revision is checksumed, else revision is checksumed.
+func HashByRevision(filename string, revision int64) (uint32, int64, error) {
+	db, err := bolt.Open(filename, 0400, &bolt.Options{})
+	if err != nil {
+		return 0, 0, err
+	}
+	defer db.Close()
+
+	h := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	h.Write(keyBucket)
+
+	latestRevisions := map[string]int64{}
+	latestRevision := int64(0)
+	err = walk(db, func(kv *mvccpb.KeyValue) (bool, error) {
+		if revision > 0 && kv.ModRevision > revision {
+			return false, nil
+		}
+
+		if kv.ModRevision > latestRevision {
+			latestRevision = kv.ModRevision
+		}
+
+		if kv.ModRevision > latestRevisions[string(kv.Key)] {
+			latestRevisions[string(kv.Key)] = kv.ModRevision
+		}
+		return false, nil
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+
+	err = walk(db, func(kv *mvccpb.KeyValue) (bool, error) {
+		if latestRevisions[string(kv.Key)] == kv.ModRevision {
+			h.Write(kv.Key)
+			h.Write(kv.Value)
+		}
+		return false, nil
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+	return h.Sum32(), latestRevision, nil
+}
+
 // ListKeySummaries returns a result set with all the provided filters and projections applied.
-func ListKeySummaries(filename string, filters []Filter, proj *KeySummaryProjection) ([]*KeySummary, error) {
+func ListKeySummaries(filename string, filters []Filter, proj *KeySummaryProjection, revision int64) ([]*KeySummary, error) {
 	var err error
+	db, err := bolt.Open(filename, 0400, &bolt.Options{})
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
 	prefixFilter, filters := separatePrefixFilter(filters)
 	m := make(map[string]*KeySummary)
-	err = walk(filename, func(kv *mvccpb.KeyValue) (bool, error) {
+	err = walk(db, func(kv *mvccpb.KeyValue) (bool, error) {
+		if revision > 0 && kv.ModRevision > revision {
+			return false, nil
+		}
 		prefixAllowed := true
 		if prefixFilter != nil {
 			prefixAllowed, err = prefixFilter.Accept(&KeySummary{Key: string(kv.Key)})
@@ -193,8 +255,8 @@ func ListKeySummaries(filename string, filters []Filter, proj *KeySummaryProject
 				}
 				m[string(kv.Key)] = ks
 			} else {
-				if kv.Version > ks.Version {
-					ks.Version = kv.Version
+				if kv.ModRevision > ks.Version {
+					ks.Version = kv.ModRevision
 					ks.Stats.ValueSize = len(kv.Value)
 				}
 				ks.Stats.VersionCount += 1
@@ -228,9 +290,15 @@ func sortKeySummaries(m map[string]*KeySummary) []*KeySummary {
 
 // ListVersions lists all versions of a object with the given key.
 func ListVersions(filename string, key string) ([]int64, error) {
+	db, err := bolt.Open(filename, 0400, &bolt.Options{})
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
 	var result []int64
 
-	err := walk(filename, func(kv *mvccpb.KeyValue) (bool, error) {
+	err = walk(db, func(kv *mvccpb.KeyValue) (bool, error) {
 		if string(kv.Key) == key {
 			result = append(result, kv.Version)
 		}
@@ -245,9 +313,14 @@ func ListVersions(filename string, key string) ([]int64, error) {
 // GetValue scans the bucket of the bolt db file for a etcd v3 record with the given key and returns the value.
 // Because bolt db files are indexed by revision
 func GetValue(filename string, key string, version int64) ([]byte, error) {
+	db, err := bolt.Open(filename, 0400, &bolt.Options{})
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
 	var result []byte
 	found := false
-	err := walk(filename, func(kv *mvccpb.KeyValue) (bool, error) {
+	err = walk(db, func(kv *mvccpb.KeyValue) (bool, error) {
 		if string(kv.Key) == key && kv.Version == version {
 			result = kv.Value
 			found = true
@@ -264,20 +337,14 @@ func GetValue(filename string, key string, version int64) ([]byte, error) {
 	return result, nil
 }
 
-func walk(filename string, f func(kv *mvccpb.KeyValue) (bool, error)) error {
-	db, err := bolt.Open(filename, 0400, &bolt.Options{})
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-
-	err = db.View(func(tx *bolt.Tx) error {
+func walk(db *bolt.DB, f func(kv *mvccpb.KeyValue) (bool, error)) error {
+	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(keyBucket)
 		c := b.Cursor()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			kv := &mvccpb.KeyValue{}
-			err = kv.Unmarshal(v)
+			err := kv.Unmarshal(v)
 			if err != nil {
 				return err
 			}

@@ -84,7 +84,7 @@ func TestListKeySummariesFilters(t *testing.T) {
 				missingKeys[key] = struct{}{}
 			}
 			unexpectedKeys := map[string]struct{}{}
-			results, err := ListKeySummaries(tt.file, tt.filters, ProjectEverything)
+			results, err := ListKeySummaries(tt.file, tt.filters, ProjectEverything, 0)
 			if err != nil {
 				t.Fatal(err)
 			}

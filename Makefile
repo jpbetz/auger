@@ -1,27 +1,23 @@
 NAME?=auger
 PKG?=github.com/jpbetz/$(NAME)
-GO_VERSION?=1.8.3
+GO_VERSION?=1.12.2
 GOOS?=linux
 GOARCH?=amd64
 TEMP_DIR:=$(shell mktemp -d)
 
-# Local development glide install
-vendor:
-	glide install --strip-vendor
-
 # Local development build
-build: vendor
+build:
 	@mkdir -p build
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o build/$(NAME)
 	@echo build/$(NAME) built!
 
 # Local development test
 # `go test` automatically manages the build, so no need to depend on the build target here in make
-test: vendor
+test:
 	@echo Vetting
-	go vet $$(go list ./... | grep -v /vendor/)
+	go vet ./...
 	@echo Testing
-	go test $$(go list ./... | grep -v /vendor/)
+	go test ./...
 
 # Dockerized build
 release:
@@ -39,12 +35,9 @@ release:
 # Build used inside docker by 'release'
 release-docker-build:
 	export GOPATH=/go
-	curl https://glide.sh/get | sh
-	glide install --strip-vendor
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build
+	GOOS=$(GOOS) GOARCH=$(GOARCH) GO111MODULE=on go build
 
 clean:
-	rm -rf vendor
 	rm -rf build
 
 .PHONY: build test release release-docker-build clean
