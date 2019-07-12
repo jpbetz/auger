@@ -154,42 +154,16 @@ func HashByRevision(filename string, revision int64) (uint32, int64, error) {
 	}
 	defer db.Close()
 
-	compactRev, err := getCompactRevision(db)
-	if err != nil {
-		return 0, 0, err
-	}
-	if revision < compactRev {
-		return 0, 0, fmt.Errorf("required revision has been compacted")
-	}
-
 	h := crc32.New(crc32.MakeTable(crc32.Castagnoli))
 	h.Write(keyBucket)
 
-	latestRevisions := map[string]int64{}
-	latestRevision := int64(0)
-	err = walk(db, func(r revKey, kv *mvccpb.KeyValue) (bool, error) {
-		if revision > 0 && r.main > revision {
-			return false, nil
-		}
-
+	latestRevision := revision
+	err = walkRevision(db, revision, func(r revKey, kv *mvccpb.KeyValue) (bool, error) {
 		if r.main > latestRevision {
 			latestRevision = r.main
 		}
-
-		if r.main > latestRevisions[string(kv.Key)] {
-			latestRevisions[string(kv.Key)] = r.main
-		}
-		return false, nil
-	})
-	if err != nil {
-		return 0, 0, err
-	}
-
-	err = walk(db, func(r revKey, kv *mvccpb.KeyValue) (bool, error) {
-		if latestRevisions[string(kv.Key)] == r.main && !r.tombstone {
-			h.Write(kv.Key)
-			h.Write(kv.Value)
-		}
+		h.Write(kv.Key)
+		h.Write(kv.Value)
 		return false, nil
 	})
 	if err != nil {
@@ -212,6 +186,22 @@ func getCompactRevision(db *bolt.DB) (int64, error) {
 		return 0, err
 	}
 	return compactRev, nil
+}
+
+func getConsistentIndex(db *bolt.DB) (int64, error) {
+	consistentIndex := int64(0)
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(metaBucket)
+		consistentIndexBytes := b.Get(consistentIndexKeyName)
+		if len(consistentIndexBytes) != 0 {
+			consistentIndex = int64(binary.BigEndian.Uint64(consistentIndexBytes[0:8]))
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return consistentIndex, nil
 }
 
 // ListKeySummaries returns a result set with all the provided filters and projections applied.
@@ -363,6 +353,47 @@ func GetValue(filename string, key string, version int64) ([]byte, error) {
 		return nil, fmt.Errorf("key not found: %s", key)
 	}
 	return result, nil
+}
+
+func walkRevision(db *bolt.DB, revision int64, f func(r revKey, kv *mvccpb.KeyValue) (bool, error)) error {
+	compactRev, err := getCompactRevision(db)
+	if err != nil {
+		return err
+	}
+	if revision < compactRev {
+		return fmt.Errorf("required revision has been compacted")
+	}
+
+	consistentIndex, err := getConsistentIndex(db)
+	if err != nil {
+		return err
+	}
+
+	if revision > consistentIndex {
+		return fmt.Errorf("required revision is above latest revision of %d", consistentIndex)
+	}
+
+	m := map[string]int64{}
+	err = walk(db, func (r revKey, kv *mvccpb.KeyValue) (bool, error) {
+		if revision > 0 && r.main > revision {
+			return false, nil
+		}
+		k := string(kv.Key)
+		if m[k] < r.main {
+			m[k] = r.main
+		}
+		return false, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return walk(db, func (r revKey, kv *mvccpb.KeyValue) (bool, error) {
+		if m[string(kv.Key)] == r.main && !r.tombstone {
+			f(r, kv)
+		}
+		return false, nil
+	})
 }
 
 func walk(db *bolt.DB, f func(r revKey, kv *mvccpb.KeyValue) (bool, error)) error {
