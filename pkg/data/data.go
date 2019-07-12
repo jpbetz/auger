@@ -145,19 +145,32 @@ func (ff *FieldFilter) Accept(ks *KeySummary) (bool, error) {
 	}
 }
 
-// HashByRevision returns the checksum and revision that was checksumed of a etcd keyspace.
-// If revision is 0, the latest revision is checksumed, else revision is checksumed.
-func HashByRevision(filename string, revision int64) (uint32, int64, error) {
+type Checksum struct {
+	Hash            uint32
+	Revision        int64
+	CompactRevision int64
+}
+
+// HashByRevision returns the checksum and revision. The checksum is of the live keyspace at a
+// particular revision. It is equivalent to performing a range request of all key-value pairs can
+// computing a hash of the data. If revision is 0, the latest revision is checksumed, else revision
+// is checksumed.  The resulting hash is consistent particular revision in the presence of
+// compactions; so long as the revions itself has not been compacted, the hash never changes.
+func HashByRevision(filename string, revision int64) (Checksum, error) {
 	db, err := bolt.Open(filename, 0400, &bolt.Options{})
 	if err != nil {
-		return 0, 0, err
+		return Checksum{}, err
 	}
 	defer db.Close()
 
 	h := crc32.New(crc32.MakeTable(crc32.Castagnoli))
 	h.Write(keyBucket)
 
-	latestRevision := revision
+	compactRevision, err := getCompactRevision(db)
+	if err != nil {
+		return Checksum{}, err
+	}
+	latestRevision := compactRevision
 	err = walkRevision(db, revision, func(r revKey, kv *mvccpb.KeyValue) (bool, error) {
 		if r.main > latestRevision {
 			latestRevision = r.main
@@ -167,9 +180,9 @@ func HashByRevision(filename string, revision int64) (uint32, int64, error) {
 		return false, nil
 	})
 	if err != nil {
-		return 0, 0, err
+		return Checksum{}, err
 	}
-	return h.Sum32(), latestRevision, nil
+	return Checksum{h.Sum32(), latestRevision, compactRevision}, nil
 }
 
 func getCompactRevision(db *bolt.DB) (int64, error) {
@@ -355,32 +368,28 @@ func GetValue(filename string, key string, version int64) ([]byte, error) {
 	return result, nil
 }
 
+type kvr struct {
+	kv  *mvccpb.KeyValue
+	rev revKey
+}
+
 func walkRevision(db *bolt.DB, revision int64, f func(r revKey, kv *mvccpb.KeyValue) (bool, error)) error {
 	compactRev, err := getCompactRevision(db)
 	if err != nil {
 		return err
 	}
-	if revision < compactRev {
+	if revision > 0 && revision < compactRev {
 		return fmt.Errorf("required revision has been compacted")
 	}
 
-	consistentIndex, err := getConsistentIndex(db)
-	if err != nil {
-		return err
-	}
-
-	if revision > consistentIndex {
-		return fmt.Errorf("required revision is above latest revision of %d", consistentIndex)
-	}
-
-	m := map[string]int64{}
-	err = walk(db, func (r revKey, kv *mvccpb.KeyValue) (bool, error) {
+	m := map[string]kvr{}
+	err = walk(db, func(r revKey, kv *mvccpb.KeyValue) (bool, error) {
 		if revision > 0 && r.main > revision {
 			return false, nil
 		}
 		k := string(kv.Key)
-		if m[k] < r.main {
-			m[k] = r.main
+		if m[k].rev.main < r.main {
+			m[k] = kvr{kv, r}
 		}
 		return false, nil
 	})
@@ -388,12 +397,22 @@ func walkRevision(db *bolt.DB, revision int64, f func(r revKey, kv *mvccpb.KeyVa
 		return err
 	}
 
-	return walk(db, func (r revKey, kv *mvccpb.KeyValue) (bool, error) {
-		if m[string(kv.Key)] == r.main && !r.tombstone {
-			f(r, kv)
-		}
-		return false, nil
+	sorted := make([]kvr, len(m))
+	i := 0
+	for _, v := range m {
+		sorted[i] = v
+		i++
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return bytes.Compare(sorted[i].kv.Key, sorted[j].kv.Key) <= 0
 	})
+
+	for _, s := range sorted {
+		if !s.rev.tombstone {
+			f(s.rev, s.kv)
+		}
+	}
+	return nil
 }
 
 func walk(db *bolt.DB, f func(r revKey, kv *mvccpb.KeyValue) (bool, error)) error {

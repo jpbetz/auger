@@ -29,11 +29,12 @@ func init() {
 }
 
 func checksum() error {
-	hash, revision, err := data.HashByRevision(checksumOpts.filename, checksumOpts.revision)
+	checksum, err := data.HashByRevision(checksumOpts.filename, checksumOpts.revision)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("checksum: %d\n", hash)
-	fmt.Printf("revision: %d\n", revision)
+	fmt.Printf("checksum: %d\n", checksum.Hash)
+	fmt.Printf("compact-revision: %d\n", checksum.CompactRevision)
+	fmt.Printf("revision: %d\n", checksum.Revision)
 	return nil
 }
