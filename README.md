@@ -97,6 +97,29 @@ auger extract -f <boltdb-file> --template="{{.Value.kind}} {{.Value.metadata.nam
 > ...
 ```
 
+### Consistency and corruption checking
+
+First get a checksum and latest revsion from one of the members:
+
+``` sh
+auger check -f <member-1-boltdb-file>
+> checksum: 1282050701
+> revision: 7
+```
+
+Then compare it with the other members:
+
+``` sh
+auger check -f <member-2-boltdb-file> -r 7
+> checksum: 1282050701
+> revision: 7
+
+auger check -f <member-3-boltdb-file> -r 7
+> checksum: 8482350767
+> revision: 7
+# Oh noes! The checksum should have been the same!
+```
+
 TODO
 ----
 

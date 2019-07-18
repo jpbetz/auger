@@ -78,6 +78,7 @@ type extractOptions struct {
 	filename     string
 	key          string
 	version      string
+	revision     int64
 	keyPrefix    string
 	listVersions bool
 	leafItem     bool
@@ -97,6 +98,7 @@ func init() {
 	extractCmd.Flags().StringVarP(&opts.filename, "file", "f", "", "Bolt DB '.db' filename")
 	extractCmd.Flags().StringVarP(&opts.key, "key", "k", "", "Etcd object key to find in boltdb file")
 	extractCmd.Flags().StringVarP(&opts.version, "version", "v", "", "Version of etcd key to find, defaults to latest version")
+	extractCmd.Flags().Int64VarP(&opts.revision, "revision", "r", 0, "etcd revision to retrieve data at, if 0, the latest revision is used, defaults to 0")
 	extractCmd.Flags().StringVar(&opts.keyPrefix, "keys-by-prefix", "", "List out all keys with the given prefix")
 	extractCmd.Flags().BoolVar(&opts.listVersions, "list-versions", false, "List out all versions of the key, requires --key")
 	extractCmd.Flags().BoolVar(&opts.leafItem, "leaf-item", false, "Read the input as a boltdb leaf page item.")
@@ -169,10 +171,10 @@ func extractValidateAndRun() error {
 	case hasTemplate && hasFields:
 		return fmt.Errorf("--template and --fields may not be used together")
 	case hasTemplate:
-		return printTemplateSummaries(opts.filename, opts.keyPrefix, opts.template, opts.filter, out)
+		return printTemplateSummaries(opts.filename, opts.keyPrefix, opts.revision, opts.template, opts.filter, out)
 	default:
 		fields := strings.Split(opts.fields, ",")
-		return printKeySummaries(opts.filename, opts.keyPrefix, fields, out)
+		return printKeySummaries(opts.filename, opts.keyPrefix, opts.revision, fields, out)
 	}
 }
 
@@ -246,7 +248,7 @@ func printLeafItemValue(kv *mvccpb.KeyValue, outMediaType string, out io.Writer)
 }
 
 // printKeySummaries prints all keys in the db file with the given key prefix.
-func printKeySummaries(filename string, keyPrefix string, fields []string, out io.Writer) error {
+func printKeySummaries(filename string, keyPrefix string, revision int64, fields []string, out io.Writer) error {
 	if len(fields) == 0 {
 		return fmt.Errorf("no fields provided, nothing to output.")
 	}
@@ -262,7 +264,7 @@ func printKeySummaries(filename string, keyPrefix string, fields []string, out i
 		}
 	}
 	proj := &data.KeySummaryProjection{HasKey: hasKey, HasValue: hasValue}
-	summaries, err := data.ListKeySummaries(filename, []data.Filter{data.NewPrefixFilter(keyPrefix)}, proj)
+	summaries, err := data.ListKeySummaries(filename, []data.Filter{data.NewPrefixFilter(keyPrefix)}, proj, revision)
 	if err != nil {
 		return err
 	}
@@ -278,7 +280,7 @@ func printKeySummaries(filename string, keyPrefix string, fields []string, out i
 
 // printTemplateSummaries prints out each KeySummary according to the given golang template.
 // See https://golang.org/pkg/text/template for details on the template format.
-func printTemplateSummaries(filename string, keyPrefix string, templatestr string, filterstr string, out io.Writer) error {
+func printTemplateSummaries(filename string, keyPrefix string, revision int64, templatestr string, filterstr string, out io.Writer) error {
 	var err error
 	t, err := template.New("template").Parse(templatestr)
 	if err != nil {
@@ -298,7 +300,7 @@ func printTemplateSummaries(filename string, keyPrefix string, templatestr strin
 	}
 
 	// We don't have a simple way to determine if the template uses the key or value or not
-	summaries, err := data.ListKeySummaries(filename, append(filters, data.NewPrefixFilter(keyPrefix)), &data.KeySummaryProjection{HasKey: true, HasValue: true})
+	summaries, err := data.ListKeySummaries(filename, append(filters, data.NewPrefixFilter(keyPrefix)), &data.KeySummaryProjection{HasKey: true, HasValue: true}, revision)
 	if err != nil {
 		return err
 	}

@@ -28,7 +28,7 @@ func init() {
 }
 
 func analyzeValidateAndRun() error {
-	summaries, err := data.ListKeySummaries(analyzeOpts.filename, []data.Filter{}, &data.KeySummaryProjection{HasKey: true, HasValue: false})
+	summaries, err := data.ListKeySummaries(analyzeOpts.filename, []data.Filter{}, &data.KeySummaryProjection{HasKey: true, HasValue: false}, 0)
 	if err != nil {
 		return err
 	}

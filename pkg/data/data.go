@@ -18,8 +18,10 @@ package data
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"sort"
 	"strings"
 	"text/template"
@@ -31,7 +33,14 @@ import (
 )
 
 // See etcd/mvcc/kvstore.go:keyBucketName
-var keyBucket = []byte("key")
+var (
+	keyBucket  = []byte("key")
+	metaBucket = []byte("meta")
+
+	consistentIndexKeyName  = []byte("consistent_index")
+	scheduledCompactKeyName = []byte("scheduledCompactRev")
+	finishedCompactKeyName  = []byte("finishedCompactRev")
+)
 
 // KeySummary represents a kubernetes object stored in etcd.
 type KeySummary struct {
@@ -136,12 +145,96 @@ func (ff *FieldFilter) Accept(ks *KeySummary) (bool, error) {
 	}
 }
 
+type Checksum struct {
+	Hash            uint32
+	Revision        int64
+	CompactRevision int64
+}
+
+// HashByRevision returns the checksum and revision. The checksum is of the live keyspace at a
+// particular revision. It is equivalent to performing a range request of all key-value pairs can
+// computing a hash of the data. If revision is 0, the latest revision is checksumed, else revision
+// is checksumed.  The resulting hash is consistent particular revision in the presence of
+// compactions; so long as the revions itself has not been compacted, the hash never changes.
+func HashByRevision(filename string, revision int64) (Checksum, error) {
+	db, err := bolt.Open(filename, 0400, &bolt.Options{})
+	if err != nil {
+		return Checksum{}, err
+	}
+	defer db.Close()
+
+	h := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	h.Write(keyBucket)
+
+	compactRevision, err := getCompactRevision(db)
+	if err != nil {
+		return Checksum{}, err
+	}
+	latestRevision := compactRevision
+	err = walkRevision(db, revision, func(r revKey, kv *mvccpb.KeyValue) (bool, error) {
+		if r.main > latestRevision {
+			latestRevision = r.main
+		}
+		h.Write(kv.Key)
+		h.Write(kv.Value)
+		return false, nil
+	})
+	if err != nil {
+		return Checksum{}, err
+	}
+	return Checksum{h.Sum32(), latestRevision, compactRevision}, nil
+}
+
+func getCompactRevision(db *bolt.DB) (int64, error) {
+	compactRev := int64(0)
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(metaBucket)
+		finishedCompactBytes := b.Get(finishedCompactKeyName)
+		if len(finishedCompactBytes) != 0 {
+			compactRev = bytesToRev(finishedCompactBytes).main
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return compactRev, nil
+}
+
+func getConsistentIndex(db *bolt.DB) (int64, error) {
+	consistentIndex := int64(0)
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(metaBucket)
+		consistentIndexBytes := b.Get(consistentIndexKeyName)
+		if len(consistentIndexBytes) != 0 {
+			consistentIndex = int64(binary.BigEndian.Uint64(consistentIndexBytes[0:8]))
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return consistentIndex, nil
+}
+
 // ListKeySummaries returns a result set with all the provided filters and projections applied.
-func ListKeySummaries(filename string, filters []Filter, proj *KeySummaryProjection) ([]*KeySummary, error) {
+func ListKeySummaries(filename string, filters []Filter, proj *KeySummaryProjection, revision int64) ([]*KeySummary, error) {
 	var err error
+	db, err := bolt.Open(filename, 0400, &bolt.Options{})
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
 	prefixFilter, filters := separatePrefixFilter(filters)
 	m := make(map[string]*KeySummary)
-	err = walk(filename, func(kv *mvccpb.KeyValue) (bool, error) {
+	err = walk(db, func(r revKey, kv *mvccpb.KeyValue) (bool, error) {
+		if revision > 0 && r.main > revision {
+			return false, nil
+		}
+		if r.tombstone {
+			delete(m, string(kv.Key))
+		}
 		prefixAllowed := true
 		if prefixFilter != nil {
 			prefixAllowed, err = prefixFilter.Accept(&KeySummary{Key: string(kv.Key)})
@@ -193,8 +286,8 @@ func ListKeySummaries(filename string, filters []Filter, proj *KeySummaryProject
 				}
 				m[string(kv.Key)] = ks
 			} else {
-				if kv.Version > ks.Version {
-					ks.Version = kv.Version
+				if kv.ModRevision > ks.Version {
+					ks.Version = kv.ModRevision
 					ks.Stats.ValueSize = len(kv.Value)
 				}
 				ks.Stats.VersionCount += 1
@@ -228,9 +321,15 @@ func sortKeySummaries(m map[string]*KeySummary) []*KeySummary {
 
 // ListVersions lists all versions of a object with the given key.
 func ListVersions(filename string, key string) ([]int64, error) {
+	db, err := bolt.Open(filename, 0400, &bolt.Options{})
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
 	var result []int64
 
-	err := walk(filename, func(kv *mvccpb.KeyValue) (bool, error) {
+	err = walk(db, func(r revKey, kv *mvccpb.KeyValue) (bool, error) {
 		if string(kv.Key) == key {
 			result = append(result, kv.Version)
 		}
@@ -245,9 +344,14 @@ func ListVersions(filename string, key string) ([]int64, error) {
 // GetValue scans the bucket of the bolt db file for a etcd v3 record with the given key and returns the value.
 // Because bolt db files are indexed by revision
 func GetValue(filename string, key string, version int64) ([]byte, error) {
+	db, err := bolt.Open(filename, 0400, &bolt.Options{})
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
 	var result []byte
 	found := false
-	err := walk(filename, func(kv *mvccpb.KeyValue) (bool, error) {
+	err = walk(db, func(r revKey, kv *mvccpb.KeyValue) (bool, error) {
 		if string(kv.Key) == key && kv.Version == version {
 			result = kv.Value
 			found = true
@@ -264,24 +368,66 @@ func GetValue(filename string, key string, version int64) ([]byte, error) {
 	return result, nil
 }
 
-func walk(filename string, f func(kv *mvccpb.KeyValue) (bool, error)) error {
-	db, err := bolt.Open(filename, 0400, &bolt.Options{})
+type kvr struct {
+	kv  *mvccpb.KeyValue
+	rev revKey
+}
+
+func walkRevision(db *bolt.DB, revision int64, f func(r revKey, kv *mvccpb.KeyValue) (bool, error)) error {
+	compactRev, err := getCompactRevision(db)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	if revision > 0 && revision < compactRev {
+		return fmt.Errorf("required revision has been compacted")
+	}
 
-	err = db.View(func(tx *bolt.Tx) error {
+	m := map[string]kvr{}
+	err = walk(db, func(r revKey, kv *mvccpb.KeyValue) (bool, error) {
+		if revision > 0 && r.main > revision {
+			return false, nil
+		}
+		k := string(kv.Key)
+		if m[k].rev.main < r.main {
+			m[k] = kvr{kv, r}
+		}
+		return false, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	sorted := make([]kvr, len(m))
+	i := 0
+	for _, v := range m {
+		sorted[i] = v
+		i++
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return bytes.Compare(sorted[i].kv.Key, sorted[j].kv.Key) <= 0
+	})
+
+	for _, s := range sorted {
+		if !s.rev.tombstone {
+			f(s.rev, s.kv)
+		}
+	}
+	return nil
+}
+
+func walk(db *bolt.DB, f func(r revKey, kv *mvccpb.KeyValue) (bool, error)) error {
+	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(keyBucket)
 		c := b.Cursor()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
+			revision := bytesToRev(k)
 			kv := &mvccpb.KeyValue{}
-			err = kv.Unmarshal(v)
+			err := kv.Unmarshal(v)
 			if err != nil {
 				return err
 			}
-			done, err := f(kv)
+			done, err := f(revision, kv)
 			if err != nil {
 				return fmt.Errorf("Error handling key %s", kv.Key)
 			}
@@ -295,6 +441,41 @@ func walk(filename string, f func(kv *mvccpb.KeyValue) (bool, error)) error {
 		return err
 	}
 	return nil
+}
+
+// A revKey indicates modification of the key-value space.
+// The set of changes that share same main revision changes the key-value space atomically.
+type revKey struct {
+	// main is the main revision of a set of changes that happen atomically.
+	main int64
+	// sub is the sub revision of a change in a set of changes that happen
+	// atomically. Each change has different increasing sub revision in that
+	// set.
+	sub int64
+	// https://github.com/etcd-io/etcd/blob/2c5162af5c096406fb991b4a15761d186b18afbf/mvcc/kvstore.go#L572
+	tombstone bool
+}
+
+// revBytesLen is the byte length of a normal revision.
+// First 8 bytes is the revision.main in big-endian format. The 9th byte
+// is a '_'. The last 8 bytes is the revision.sub in big-endian format.
+
+const (
+	revBytesLen            = 8 + 1 + 8
+	markedRevBytesLen      = revBytesLen + 1
+	markBytePosition       = markedRevBytesLen - 1
+	markTombstone     byte = 't'
+)
+
+func bytesToRev(bytes []byte) revKey {
+	r := revKey{
+		main: int64(binary.BigEndian.Uint64(bytes[0:8])),
+		sub:  int64(binary.BigEndian.Uint64(bytes[9:])),
+	}
+	if len(bytes) >= markedRevBytesLen {
+		r.tombstone = bytes[markedRevBytesLen-1] == 't'
+	}
+	return r
 }
 
 // ParseFilters parses a comma separated list of '<field>=<value>' filters where each field is
