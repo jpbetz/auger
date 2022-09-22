@@ -14,7 +14,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  creationTimestamp: 2017-06-27T16:35:34Z
+  creationTimestamp: "2017-06-27T16:35:34Z"
   labels:
     controller-uid: a4acc46c-5b56-11e7-8d4b-42010a800002
     job-name: pi
@@ -54,11 +54,11 @@ spec:
       securityContext: {}
       terminationGracePeriodSeconds: 30
 status:
-  completionTime: 2017-06-27T16:36:07Z
+  completionTime: "2017-06-27T16:36:07Z"
   conditions:
-  - lastProbeTime: 2017-06-27T16:36:07Z
-    lastTransitionTime: 2017-06-27T16:36:07Z
+  - lastProbeTime: "2017-06-27T16:36:07Z"
+    lastTransitionTime: "2017-06-27T16:36:07Z"
     status: "True"
     type: Complete
-  startTime: 2017-06-27T16:35:34Z
+  startTime: "2017-06-27T16:35:34Z"
   succeeded: 1

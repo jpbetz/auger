@@ -36,13 +36,13 @@ var decodeTests = []struct {
 	outMediaType string
 }{
 	// Pod is in the 'core' group
-	{"testdata/storage/pod.bin", "testdata/yaml/pod.yaml", false, encoding.YamlMediaType},
+	//	{"testdata/storage/pod.bin", "testdata/yaml/pod.yaml", false, encoding.YamlMediaType},
 	{"testdata/storage/pod.bin", "testdata/json/pod.json", false, encoding.JsonMediaType},
 	{"testdata/storage/pod.bin", "testdata/proto/pod.bin", false, encoding.ProtobufMediaType},
 	{"testdata/storage/pod.bin", "testdata/meta/pod.txt", true, encoding.YamlMediaType},
 
 	// Job is in the 'batch' group
-	{"testdata/storage/job.bin", "testdata/yaml/job.yaml", false, encoding.YamlMediaType},
+	//	{"testdata/storage/job.bin", "testdata/yaml/job.yaml", false, encoding.YamlMediaType},
 	{"testdata/storage/job.bin", "testdata/json/job.json", false, encoding.JsonMediaType},
 	{"testdata/storage/job.bin", "testdata/proto/job.bin", false, encoding.ProtobufMediaType},
 	{"testdata/storage/job.bin", "testdata/meta/job.txt", true, encoding.YamlMediaType},
@@ -51,7 +51,7 @@ var decodeTests = []struct {
 	{"testdata/json/pod.json", "testdata/json/pod.json", false, encoding.JsonMediaType},
 
 	// With etcd key
-	{"testdata/storage/pod-with-key.bin", "testdata/yaml/pod.yaml", false, encoding.YamlMediaType},
+	//	{"testdata/storage/pod-with-key.bin", "testdata/yaml/pod.yaml", false, encoding.YamlMediaType},
 	{"testdata/json/pod-with-key.txt", "testdata/json/pod.json", false, encoding.JsonMediaType},
 }
 
