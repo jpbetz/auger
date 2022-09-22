@@ -19,7 +19,7 @@ require (
 	github.com/stretchr/testify v1.7.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/inf.v0 v0.9.0 // indirect
-	gopkg.in/yaml.v2 v2.0.0-20150924142314-53feefa2559f
+	gopkg.in/yaml.v2 v2.4.0
 	k8s.io/api v0.0.0-20180521142803-feb48db456a5
 	k8s.io/apimachinery v0.0.0-20180515182440-31dade610c05
 )
