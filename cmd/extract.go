@@ -23,9 +23,9 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"text/template"
 
 	"github.com/coreos/etcd/mvcc/mvccpb"
+	"github.com/google/safetext/yamltemplate"
 	"github.com/jpbetz/auger/pkg/data"
 	"github.com/jpbetz/auger/pkg/encoding"
 	"github.com/spf13/cobra"
@@ -282,7 +282,7 @@ func printKeySummaries(filename string, keyPrefix string, revision int64, fields
 // See https://golang.org/pkg/text/template for details on the template format.
 func printTemplateSummaries(filename string, keyPrefix string, revision int64, templatestr string, filterstr string, out io.Writer) error {
 	var err error
-	t, err := template.New("template").Parse(templatestr)
+	t, err := yamltemplate.New("template").Parse(templatestr)
 	if err != nil {
 		return err
 	}

@@ -11,6 +11,7 @@ require (
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b // indirect
 	github.com/golang/protobuf v0.0.0-20161109072736-4bd1920723d7 // indirect
 	github.com/google/gofuzz v0.0.0-20161122191042-44d81051d367 // indirect
+	github.com/google/safetext v0.0.0-20220914124124-e18e3fe012bf // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/json-iterator/go v0.0.0-20171212105241-13f86432b882 // indirect
 	github.com/spf13/cobra v0.0.1
