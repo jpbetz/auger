@@ -15,7 +15,7 @@
 
 NAME ?= auger
 PKG ?= github.com/jpbetz/$(NAME)
-GO_VERSION ?= 1.16.5
+GO_VERSION ?= 1.20.5
 GOOS ?= linux
 GOARCH ?= amd64
 TEMP_DIR := $(shell mktemp -d)
