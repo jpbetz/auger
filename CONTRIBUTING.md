@@ -1,10 +1,10 @@
-# Contributing to service-catalog
+# Contributing Guidelines
 
-This document should concisely express the project development status,
-methodology, and contribution process.  As the community makes progress, we
-should keep this document in sync with reality.
+Welcome to Kubernetes. We are excited about the prospect of you joining our [community](https://git.k8s.io/community)! The Kubernetes community abides by the CNCF [code of conduct](code-of-conduct.md). Here is an excerpt:
 
-## Submitting a Pull Request (PR)
+_As contributors and maintainers of this project, and in the interest of fostering an open and welcoming community, we pledge to respect all people who contribute through reporting issues, posting feature requests, updating documentation, submitting pull requests or patches, and other activities._
+
+## Getting Started
 
 The following outlines the general rules we follow:
 
@@ -16,27 +16,11 @@ not just a partial solution.
 include tests that demonstrates the issue w/o your fix. New features should
 include as many testcases, within reason, to cover any variants of use of the
 feature.
-- PR authors will need to have CLA on-file with the Linux Foundation before 
-the PR will be merged.
-See Kubernete's [contributing guidelines](https://github.com/kubernetes/kubernetes/blob/master/CONTRIBUTING.md) for more information.
+- [Contributor License Agreement](https://git.k8s.io/community/CLA.md) - Kubernetes projects require that you sign a Contributor License Agreement (CLA) before we can accept your pull requests
+- [Kubernetes Contributor Guide](https://k8s.dev/guide) - Main contributor documentation, or you can just jump directly to the [contributing page](https://k8s.dev/docs/guide/contributing/)
+- [Contributor Cheat Sheet](https://k8s.dev/cheatsheet) - Common resources for existing developers
 
-See our [reviewing PRs](REVIEWING.md) documentation for how your PR will
-be reviewed.
+## Contact Information
 
-## Development status
-
-We're currently collecting use-cases and requirements for our [v1 milestone](./docs/v1).
-
-## Methodology
-
-Each milestone will have a directory within the [`docs`](./docs) directory of
-this project.   We will keep a complete record of all supported use-cases and
-major designs for each milestone.
-
-## Contributing to a release
-
-If you would like to propose or change a use-case, open a pull request to the
-project, adding or altering a file within the `docs` directory.
-
-We'll update this space as we begin developing code with relevant dev
-information.
+- [SIG-etcd slack channel](https://kubernetes.slack.com/archives/C3HD8ARJ5)
+- [Mailing list](https://groups.google.com/g/etcd-dev)
