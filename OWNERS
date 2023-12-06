@@ -1,5 +1,13 @@
-jpbetz
-mml
-cheftako
-Quentin-M
-logicalhan
+# See the OWNERS docs at https://go.k8s.io/owners
+
+approvers:
+  - siyuanfoundation
+  - jmhbnz
+  - wenjiaswe
+
+emeritus_approvers:
+  - jpbetz
+  - mml
+  - cheftako
+  - Quentin-M
+  - logicalhan
