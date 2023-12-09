@@ -1,0 +1,7 @@
+FROM golang:1.16-bullseye
+
+WORKDIR /go/src/github.com/jpbetz/auger
+ADD     . /go/src/github.com/jpbetz/auger
+RUN     go get github.com/jpbetz/auger && chmod +x /go/bin/auger
+
+ENTRYPOINT ["/go/bin/auger"]
